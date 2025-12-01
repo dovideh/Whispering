@@ -10,7 +10,7 @@ from typing import Optional
 from nicegui import ui
 
 import core
-from cmque import DataDeque, PairDeque
+from cmque import DataDeque, PairDeque, Queue
 from whispering_ui.state import AppState
 
 
@@ -23,10 +23,10 @@ class ProcessingBridge:
     def __init__(self, state: AppState):
         self.state = state
 
-        # Processing queues (for core.proc)
-        self.ts_queue = DataDeque()  # Whisper transcription queue
-        self.tl_queue = PairDeque()  # Translation queue
-        self.pr_queue = DataDeque()  # AI proofread queue (for proofread+translate mode)
+        # Processing queues (for core.proc) - wrapped in Queue for .put() method
+        self.ts_queue = Queue(PairDeque())  # Whisper transcription queue
+        self.tl_queue = Queue(PairDeque())  # Translation queue
+        self.pr_queue = Queue(PairDeque())  # AI proofread queue (for proofread+translate mode)
 
         # Control flags
         self.ready = [None]  # [None] = stopped, [False] = stopping, [True] = running
@@ -189,40 +189,59 @@ class ProcessingBridge:
         # Update audio level
         self.state.audio_level = min(100, self.level[0])
 
-        # Poll whisper queue
+        # Poll whisper queue (Queue wraps PairDeque)
         while self.ts_queue:
-            text = self.ts_queue.popleft()
-            self.state.whisper_text += text
+            res = self.ts_queue.get()
+            if res:
+                done, curr = res
+                # Append done text (new complete text)
+                if done and len(done) > len(self.state.whisper_text):
+                    new_text = done[len(self.state.whisper_text):]
+                    self.state.whisper_text = done
 
-            # Handle TTS for Whisper
-            if self.state.tts_enabled and self.state.tts_source == "whisper":
-                self.tts_session_text += text + " "
+                    # Handle TTS for Whisper
+                    if self.state.tts_enabled and self.state.tts_source == "whisper":
+                        self.tts_session_text += new_text + " "
 
-            # Handle autotype for Whisper
-            if self.state.autotype_mode == "Whisper" and text:
-                self._autotype_text(text)
+                    # Handle autotype for Whisper
+                    if self.state.autotype_mode == "Whisper":
+                        self._autotype_text(new_text)
 
-        # Poll translation queue
+        # Poll translation queue (Queue wraps PairDeque)
         while self.tl_queue:
-            src, dst = self.tl_queue.popleft()
-            self.state.translation_text += dst
+            res = self.tl_queue.get()
+            if res:
+                done, curr = res
+                # Append done text (new complete text)
+                if done and len(done) > len(self.state.translation_text):
+                    new_text = done[len(self.state.translation_text):]
+                    self.state.translation_text = done
 
-            # Handle TTS for Translation
-            if self.state.tts_enabled and self.state.tts_source == "translation":
-                self.tts_session_text += dst + " "
+                    # Handle TTS for Translation
+                    if self.state.tts_enabled and self.state.tts_source == "translation":
+                        self.tts_session_text += new_text + " "
 
-            # Handle autotype for Translation or AI
-            if self.state.autotype_mode in ("Translation", "AI") and dst:
-                self._autotype_text(dst)
+                    # Handle autotype for Translation
+                    if self.state.autotype_mode == "Translation":
+                        self._autotype_text(new_text)
 
-        # Poll AI proofread queue
+        # Poll AI proofread queue (Queue wraps PairDeque)
         while self.pr_queue:
-            text = self.pr_queue.popleft()
-            self.state.ai_text += text
+            res = self.pr_queue.get()
+            if res:
+                done, curr = res
+                # Append done text (new complete text)
+                if done and len(done) > len(self.state.ai_text):
+                    new_text = done[len(self.state.ai_text):]
+                    self.state.ai_text = done
 
-            # Handle TTS for AI
-            if self.state.tts_enabled and self.state.tts_source == "ai":
-                self.tts_session_text += text + " "
+                    # Handle TTS for AI
+                    if self.state.tts_enabled and self.state.tts_source == "ai":
+                        self.tts_session_text += new_text + " "
+
+                    # Handle autotype for AI
+                    if self.state.autotype_mode == "AI":
+                        self._autotype_text(new_text)
 
     def _validate_settings(self) -> bool:
         """Validate settings before starting. Returns True if valid."""
