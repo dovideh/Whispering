@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox
 
 import core
 from settings import Settings
+from debug import set_debug_enabled
 from gui_parts.help_dialog import HelpDialog, MODEL_VRAM
 from gui_parts.text_widget import Text
 
@@ -26,6 +27,7 @@ class App(tk.Tk):
 
         # Load debug mode from settings (default: False)
         self.debug_enabled = self.settings.get("debug_enabled", False)
+        set_debug_enabled(self.debug_enabled)
 
         # Load text visibility state from settings (default: False - start in minimal mode)
         self.text_visible = self.settings.get("text_visible", False)

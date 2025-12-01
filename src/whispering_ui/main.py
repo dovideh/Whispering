@@ -4,6 +4,7 @@ Whispering NiceGUI Application
 Main entry point for the NiceGUI-based UI
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -15,8 +16,9 @@ import core
 from settings import Settings
 from whispering_ui.state import AppState
 from whispering_ui.bridge import ProcessingBridge
-from whispering_ui.components.sidebar import create_sidebar
+from whispering_ui.components.sidebar import create_sidebar, sync_text_layout
 from whispering_ui.components.output import create_output_panels
+from debug import set_debug_enabled
 
 
 def main():
@@ -31,6 +33,7 @@ def main():
 
     # Apply loaded settings to state
     state.debug_enabled = settings.get("debug_enabled", False)
+    set_debug_enabled(state.debug_enabled)
     state.text_visible = settings.get("text_visible", False)
     state.model = settings.get("model", "large-v3")
     state.vad_enabled = settings.get("vad", True)
@@ -116,6 +119,15 @@ def main():
                 padding: 0 !important;
             }
 
+            .workspace-row {
+                transition: max-width 0.25s ease;
+            }
+
+            .workspace-row.workspace-collapsed {
+                max-width: 420px;
+                margin: 0 auto;
+            }
+
             /* Sidebar - fixed width, dark background */
             .sidebar-container {
                 background: #1e1e1e;
@@ -129,7 +141,94 @@ def main():
             .output-container {
                 background: #121212;
                 flex: 1;
-                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+                height: 100%;
+                overflow: hidden;
+                padding: 0;
+            }
+
+            .output-stack {
+                display: flex;
+                flex-direction: column;
+                gap: 0.35rem;
+                flex: 1;
+                min-height: 0;
+                height: 100%;
+                width: 100%;
+                padding: 0.4rem 0.5rem 0.4rem 0.4rem;
+            }
+
+            .output-panel {
+                background: #181818;
+                border: 1px solid #2a2a2a;
+                border-radius: 8px;
+                padding: 0.35rem 0.55rem 0.3rem;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+                flex: 1 1 0;
+                width: 100%;
+            }
+
+            .output-panel .panel-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 0.05rem;
+            }
+
+            .output-panel .q-field {
+                flex: 1 1 0;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+                margin: 0;
+                --q-field-padding: 0;
+                --q-field-label-padding: 0;
+            }
+
+            .output-panel .q-field__inner,
+            .output-panel .q-field__control,
+            .output-panel .q-field__native {
+                flex: 1 1 0;
+                min-height: 0;
+                height: 100%;
+                width: 100%;
+            }
+
+            .output-panel .q-field__bottom,
+            .output-panel .q-field__messages {
+                display: none;
+            }
+
+            .output-panel .q-field__control {
+                align-items: stretch;
+            }
+
+            .output-panel .q-field__native textarea {
+                height: 100% !important;
+                min-height: 0;
+                width: 100%;
+                resize: none;
+                padding: 0;
+                margin: 0;
+            }
+
+            .output-textarea {
+                flex: 1 1 0;
+                min-height: 0;
+                width: 100%;
+                height: 100%;
+                resize: none;
+                font-family: Menlo, Consolas, 'Liberation Mono', monospace;
+                padding-bottom: 0;
+                margin: 0;
+            }
+
+            .section-muted {
+                opacity: 0.65;
             }
 
             /* Compact controls */
@@ -164,7 +263,7 @@ def main():
 
     # === UI LAYOUT ===
     # Horizontal split: sidebar (left) | output panels (right)
-    with ui.row().classes('w-full h-screen').style('margin: 0; padding: 0; gap: 0;'):
+    with ui.row().classes('workspace-row w-full h-screen').style('margin: 0; padding: 0; gap: 0;') as workspace_row:
         # Sidebar on left - fixed width
         sidebar_container = create_sidebar(state, bridge, None).classes('sidebar-container')
 
@@ -173,10 +272,10 @@ def main():
 
         # Connect sidebar to output for show/hide
         sidebar_container._output_container = output_container
+        sidebar_container._layout_row = workspace_row
 
         # Set initial visibility
-        if not state.text_visible:
-            output_container.set_visibility(False)
+        sync_text_layout(state, sidebar_container, notify=False)
 
     # === SAVE SETTINGS ON EXIT ===
     def save_settings_on_exit():
@@ -238,14 +337,27 @@ def main():
         print("   For native window, install: pip install PyQt6 PyQt6-WebEngine")
         print("   Starting web interface at http://127.0.0.1:8000\n")
 
-    ui.run(
-        title='Whispering',
-        native=native_mode,
-        port=8000,
-        window_size=(400 if not state.text_visible else 1200, 800),
-        reload=False,
-        show=not native_mode  # Only auto-open browser in browser mode
-    )
+    if native_mode:
+        os.environ.setdefault('PYWEBVIEW_GUI', 'qt')
+
+    def launch_ui(use_native: bool):
+        ui.run(
+            title='Whispering',
+            native=use_native,
+            port=8000,
+            window_size=(400 if not state.text_visible else 1200, 800),
+            reload=False,
+            show=not use_native  # Only auto-open browser in browser mode
+        )
+
+    try:
+        launch_ui(native_mode)
+    except ModuleNotFoundError as exc:
+        if native_mode and exc.name == 'gi':
+            print("\n⚠️  GTK bindings (gi) are missing; falling back to browser mode.\n")
+            launch_ui(False)
+        else:
+            raise
 
 
 if __name__ == "__main__":

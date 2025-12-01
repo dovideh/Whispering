@@ -13,7 +13,18 @@ class Settings:
     """Manages application settings persistence."""
 
     def __init__(self, settings_file: str = "whispering_settings.json"):
-        self.settings_file = Path(settings_file)
+        settings_path = Path(settings_file)
+        if not settings_path.is_absolute():
+            base_dir = Path(__file__).resolve().parent
+            project_root = base_dir.parent
+            primary = (project_root / settings_path).resolve()
+            legacy = (base_dir / settings_path).resolve()
+            if primary.exists() or not legacy.exists():
+                settings_path = primary
+            else:
+                settings_path = legacy
+
+        self.settings_file = settings_path
         self.defaults = {
             "mic_index": 0,
             "model": "large-v3",
@@ -38,6 +49,7 @@ class Settings:
             "ai_trigger_mode": "time",  # "time" or "words"
             "ai_process_words": 150,  # Words per processing batch
             "text_visible": True,  # Text windows visible by default
+            "debug_enabled": False,
             "auto_stop_enabled": False,  # Auto-stop disabled by default
             "auto_stop_minutes": 5  # Auto-stop after N minutes of inactivity
         }
