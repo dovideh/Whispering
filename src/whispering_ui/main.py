@@ -102,21 +102,79 @@ def main():
             print(f"Failed to initialize TTS controller: {e}")
             state.tts_available = False
 
-    # === UI LAYOUT ===
+    # === UI SETUP ===
     ui.page_title('Whispering')
 
-    # Create main container - sidebar on left, output on right
-    with ui.row().classes('w-full h-screen'):
-        # Create output panels first (but will be positioned on right)
-        output_container = create_output_panels(state)
+    # Enable dark mode
+    ui.dark_mode().enable()
 
-        # Sidebar on left - pass output container so it can toggle visibility
-        sidebar_container = create_sidebar(state, bridge, output_container)
+    # Add custom CSS for compact, modern dark theme
+    ui.add_head_html('''
+        <style>
+            /* Compact spacing */
+            .q-page {
+                padding: 0 !important;
+            }
 
-        # Move sidebar to the left (before output in DOM order)
-        sidebar_container.move(output_container)
+            /* Sidebar - fixed width, dark background */
+            .sidebar-container {
+                background: #1e1e1e;
+                border-right: 1px solid #333;
+                overflow-y: auto;
+                min-width: 350px !important;
+                max-width: 350px !important;
+            }
 
-        # Set initial visibility of output
+            /* Output panels - take remaining space */
+            .output-container {
+                background: #121212;
+                flex: 1;
+                overflow-y: auto;
+            }
+
+            /* Compact controls */
+            .q-field__control {
+                min-height: 32px !important;
+            }
+
+            .q-btn {
+                font-size: 0.875rem !important;
+            }
+
+            /* Section separators */
+            .q-separator {
+                background: #333 !important;
+            }
+
+            /* Scrollbars */
+            ::-webkit-scrollbar {
+                width: 8px;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: #1e1e1e;
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: #444;
+                border-radius: 4px;
+            }
+        </style>
+    ''')
+
+    # === UI LAYOUT ===
+    # Horizontal split: sidebar (left) | output panels (right)
+    with ui.row().classes('w-full h-screen').style('margin: 0; padding: 0; gap: 0;'):
+        # Sidebar on left - fixed width
+        sidebar_container = create_sidebar(state, bridge, None).classes('sidebar-container')
+
+        # Output panels on right - flex grow
+        output_container = create_output_panels(state).classes('output-container')
+
+        # Connect sidebar to output for show/hide
+        sidebar_container._output_container = output_container
+
+        # Set initial visibility
         if not state.text_visible:
             output_container.set_visibility(False)
 
