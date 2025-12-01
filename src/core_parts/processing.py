@@ -175,6 +175,9 @@ def proc(index, model, vad, memory, patience, timeout, prompt, source, target, t
         while ts2tl := ts2tl_queue.get():
             done_src, curr_src = ts2tl
 
+            if curr_src and curr_src.strip():
+                last_activity_time = time.time()
+
             # Track last curr_src for exit processing
             last_curr_src = curr_src
 

@@ -19,73 +19,80 @@ def create_output_panels(state: AppState):
         The output container element for visibility control
     """
 
-    output_container = ui.column().classes('flex-grow p-4 gap-3')
+    output_container = ui.column().classes('flex-grow w-full h-full gap-0').style('height: 100%; min-height: 0; padding: 0;')
+
+    panel_defs = [
+        {
+            'key': 'whisper',
+            'title': 'Whisper Output',
+            'placeholder': 'Whisper transcription will appear here...',
+            'state_attr': 'whisper_text',
+            'count_fn': state.get_whisper_count,
+            'cut_type': 'whisper',
+            'copy_label': 'Whisper',
+        },
+        {
+            'key': 'ai',
+            'title': 'AI Output',
+            'placeholder': 'AI processed text will appear here...',
+            'state_attr': 'ai_text',
+            'count_fn': state.get_ai_count,
+            'cut_type': 'ai',
+            'copy_label': 'AI',
+        },
+        {
+            'key': 'translation',
+            'title': 'Translation Output',
+            'placeholder': 'Translation will appear here...',
+            'state_attr': 'translation_text',
+            'count_fn': state.get_translation_count,
+            'cut_type': 'translation',
+            'copy_label': 'Translation',
+        },
+    ]
+
+    textareas = {}
+    count_labels = {}
 
     with output_container:
-        # === WHISPER OUTPUT ===
-        with ui.column().classes('flex-grow'):
-            with ui.row().classes('items-center justify-between w-full mb-1'):
-                ui.label('Whisper Output').classes('font-bold')
+        stack = ui.column().classes('output-stack w-full h-full flex-1')
+        for config in panel_defs:
+            with stack:
+                panel = ui.element('div').classes('output-panel').style('flex: 1; min-height: 0;')
+                with panel:
+                    with ui.row().classes('panel-header w-full'):
+                        ui.label(config['title']).classes('font-bold')
+                        with ui.row().classes('items-center gap-2'):
+                            count_labels[config['key']] = ui.label('0 chars, 0 words').classes('text-xs text-gray-500')
+                            ui.button(
+                                'Copy',
+                                on_click=lambda cfg=config: _copy_text(
+                                    getattr(state, cfg['state_attr']),
+                                    cfg['copy_label']
+                                )
+                            ).props('dense flat').classes('text-xs')
+                            ui.button(
+                                'Cut',
+                                on_click=lambda cfg=config: _cut_text(
+                                    state,
+                                    cfg['cut_type'],
+                                    textareas[cfg['key']]
+                                )
+                            ).props('dense flat').classes('text-xs')
 
-                # Count and buttons
-                with ui.row().classes('items-center gap-2'):
-                    whisper_count = ui.label('0 chars, 0 words').classes('text-xs text-gray-500')
-                    ui.button('Copy', on_click=lambda: _copy_text(state.whisper_text, 'Whisper')).props('dense flat').classes('text-xs')
-                    ui.button('Cut', on_click=lambda: _cut_text(state, 'whisper', whisper_area)).props('dense flat').classes('text-xs')
+                    textareas[config['key']] = ui.textarea(
+                        placeholder=config['placeholder']
+                    ).classes('w-full h-full flex-1 output-textarea').style('font-family: monospace; min-height: 0; height: 100%;').props('outlined readonly')
 
-            whisper_area = ui.textarea(
-                placeholder='Whisper transcription will appear here...'
-            ).classes('w-full').style('min-height: 200px; font-family: monospace;').props('outlined readonly')
-
-        # === AI OUTPUT ===
-        with ui.column().classes('flex-grow'):
-            with ui.row().classes('items-center justify-between w-full mb-1'):
-                ui.label('AI Output').classes('font-bold')
-
-                # Count and buttons
-                with ui.row().classes('items-center gap-2'):
-                    ai_count = ui.label('0 chars, 0 words').classes('text-xs text-gray-500')
-                    ui.button('Copy', on_click=lambda: _copy_text(state.ai_text, 'AI')).props('dense flat').classes('text-xs')
-                    ui.button('Cut', on_click=lambda: _cut_text(state, 'ai', ai_area)).props('dense flat').classes('text-xs')
-
-            ai_area = ui.textarea(
-                placeholder='AI processed text will appear here...'
-            ).classes('w-full').style('min-height: 200px; font-family: monospace;').props('outlined readonly')
-
-        # === TRANSLATION OUTPUT ===
-        with ui.column().classes('flex-grow'):
-            with ui.row().classes('items-center justify-between w-full mb-1'):
-                ui.label('Translation Output').classes('font-bold')
-
-                # Count and buttons
-                with ui.row().classes('items-center gap-2'):
-                    trans_count = ui.label('0 chars, 0 words').classes('text-xs text-gray-500')
-                    ui.button('Copy', on_click=lambda: _copy_text(state.translation_text, 'Translation')).props('dense flat').classes('text-xs')
-                    ui.button('Cut', on_click=lambda: _cut_text(state, 'translation', trans_area)).props('dense flat').classes('text-xs')
-
-            trans_area = ui.textarea(
-                placeholder='Translation will appear here...'
-            ).classes('w-full').style('min-height: 200px; font-family: monospace;').props('outlined readonly')
-
-        # Update text areas from state
         def update_outputs():
-            # Update whisper
-            if whisper_area.value != state.whisper_text:
-                whisper_area.value = state.whisper_text
-            wc, ww = state.get_whisper_count()
-            whisper_count.text = f'{wc} chars, {ww} words'
+            for cfg in panel_defs:
+                text_value = getattr(state, cfg['state_attr'])
+                area = textareas[cfg['key']]
+                if area.value != text_value:
+                    area.value = text_value
 
-            # Update AI
-            if ai_area.value != state.ai_text:
-                ai_area.value = state.ai_text
-            ac, aw = state.get_ai_count()
-            ai_count.text = f'{ac} chars, {aw} words'
-
-            # Update translation
-            if trans_area.value != state.translation_text:
-                trans_area.value = state.translation_text
-            tc, tw = state.get_translation_count()
-            trans_count.text = f'{tc} chars, {tw} words'
+                chars, words = cfg['count_fn']()
+                count_labels[cfg['key']].text = f'{chars} chars, {words} words'
 
         ui.timer(0.2, update_outputs)
 
