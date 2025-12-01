@@ -24,6 +24,9 @@ class App(tk.Tk):
         # Load settings first
         self.settings = Settings()
 
+        # Load debug mode from settings (default: False)
+        self.debug_enabled = self.settings.get("debug_enabled", False)
+
         # Load text visibility state from settings (default: False - start in minimal mode)
         self.text_visible = self.settings.get("text_visible", False)
 
@@ -32,14 +35,14 @@ class App(tk.Tk):
 
         # Set minimum window size - will adjust based on mode
         # For minimal mode: calculate based on controls, for full mode add space for text
-        # Minimal mode: 400x980 minimum (never go below this)
-        # Full mode: 900x980 gives space for text panels
+        # Minimal mode: 400x1000 minimum (never go below this)
+        # Full mode: 900x1000 gives space for text panels
         if self.text_visible:
-            self.minsize(900, 980)  # Full mode - more vertical space for text
-            self.maxsize(10000, 980)  # Limit max height to 980px
+            self.minsize(900, 1000)  # Full mode - more vertical space for text
+            self.maxsize(10000, 1000)  # Limit max height to 1000px
         else:
-            self.minsize(400, 980)  # Minimal mode - never below 400x980
-            self.maxsize(10000, 980)  # Limit max height to 980px
+            self.minsize(400, 1000)  # Minimal mode - never below 400x1000
+            self.maxsize(10000, 1000)  # Limit max height to 1000px
 
         # Try to load AI configuration
         self.ai_config = None
@@ -195,7 +198,7 @@ class App(tk.Tk):
         # Section header with help button
         model_header = ttk.Frame(self.controls_frame)
         model_header.grid(row=row, column=0, sticky="ew", pady=(0, 3))
-        ttk.Label(model_header, text="Model Settings", font=('TkDefaultFont', 9, 'bold')).pack(side="left")
+        ttk.Label(model_header, text="Model Settings Speech-to-Text", font=('TkDefaultFont', 9, 'bold')).pack(side="left")
         help_btn = ttk.Button(model_header, text="?", width=2, command=lambda: HelpDialog.show(self, "model"))
         help_btn.pack(side="right")
         row += 1
@@ -471,15 +474,6 @@ class App(tk.Tk):
         # Hide by default (only show when AI is active)
         ai_output_buttons_frame.grid_remove()
 
-        # === PROMPT ===
-        prompt_frame = ttk.Frame(self.controls_frame)
-        prompt_frame.grid(row=row, column=0, sticky="ew", pady=(0, 5))
-        row += 1
-
-        ttk.Label(prompt_frame, text="Prompt:").pack(side="top", anchor="w", pady=(0, 2))
-        self.prompt_entry = ttk.Entry(prompt_frame, state="normal")
-        self.prompt_entry.pack(side="top", fill="x")
-
         # === TTS SECTION ===
         ttk.Separator(self.controls_frame, orient="horizontal").grid(row=row, column=0, sticky="ew", pady=(10, 5))
         row += 1
@@ -503,6 +497,40 @@ class App(tk.Tk):
         else:
             self.tts_check.state(("disabled",))
         self.tts_check.pack(side="left", padx=(0, 5))
+
+        # TTS Source selection (mutually exclusive)
+        tts_source_frame = ttk.Frame(self.controls_frame)
+        tts_source_frame.grid(row=row, column=0, sticky="ew", pady=(0, 5))
+        row += 1
+
+        ttk.Label(tts_source_frame, text="Source:").pack(side="left", padx=(0, 5))
+
+        self.tts_source_whisper = ttk.Checkbutton(tts_source_frame, text="W", onvalue=True, offvalue=False,
+                                                   command=lambda: self.on_tts_source_changed("whisper"))
+        if self.tts_available:
+            self.tts_source_whisper.state(("!alternate", "selected"))  # Default to Whisper
+        else:
+            self.tts_source_whisper.state(("disabled",))
+        self.tts_source_whisper.pack(side="left", padx=(0, 5))
+
+        self.tts_source_ai = ttk.Checkbutton(tts_source_frame, text="A", onvalue=True, offvalue=False,
+                                             command=lambda: self.on_tts_source_changed("ai"))
+        if self.tts_available:
+            self.tts_source_ai.state(("!alternate",))
+        else:
+            self.tts_source_ai.state(("disabled",))
+        self.tts_source_ai.pack(side="left", padx=(0, 5))
+
+        self.tts_source_translation = ttk.Checkbutton(tts_source_frame, text="T", onvalue=True, offvalue=False,
+                                                      command=lambda: self.on_tts_source_changed("translation"))
+        if self.tts_available:
+            self.tts_source_translation.state(("!alternate",))
+        else:
+            self.tts_source_translation.state(("disabled",))
+        self.tts_source_translation.pack(side="left", padx=(0, 5))
+
+        # Track current TTS source
+        self.tts_source_active = "whisper"  # Default to Whisper
 
         # Voice reference
         tts_voice_frame = ttk.Frame(self.controls_frame)
@@ -543,8 +571,8 @@ class App(tk.Tk):
 
         # TTS status
         self.tts_status_label = ttk.Label(self.controls_frame, text="", foreground="blue",
-                                         wraplength=330, font=('TkDefaultFont', 8))
-        self.tts_status_label.grid(row=row, column=0, sticky="ew", pady=(0, 5))
+                                         wraplength=340, font=('TkDefaultFont', 8))
+        self.tts_status_label.grid(row=row, column=0, sticky="ew", pady=(0, 5), padx=5)
         row += 1
 
         # === CONTROL BUTTON & LEVEL ===
@@ -575,8 +603,8 @@ class App(tk.Tk):
         ttk.Label(autostop_frame, text="min of inactivity").pack(side="left")
 
         # === STATUS ===
-        self.status_label = ttk.Label(self.controls_frame, text="", foreground="red", wraplength=330)
-        self.status_label.grid(row=row, column=0, sticky="ew")
+        self.status_label = ttk.Label(self.controls_frame, text="", foreground="red", wraplength=340)
+        self.status_label.grid(row=row, column=0, sticky="ew", padx=5)
         row += 1
 
         # State variables
@@ -600,11 +628,21 @@ class App(tk.Tk):
         if self.tts_available:
             tts_enabled = self.settings.get("tts_enabled", False)
             tts_save_file = self.settings.get("tts_save_file", False)
+            tts_source = self.settings.get("tts_source", "whisper")
 
             if tts_enabled:
                 self.tts_check.state(("selected",))
             if tts_save_file:
                 self.tts_save_check.state(("selected",))
+
+            # Restore TTS source selection
+            self.tts_source_active = tts_source
+            if tts_source == "whisper":
+                self.tts_source_whisper.state(("selected",))
+            elif tts_source == "ai":
+                self.tts_source_ai.state(("selected",))
+            elif tts_source == "translation":
+                self.tts_source_translation.state(("selected",))
 
         # Load and apply AI settings
         if self.ai_available:
@@ -685,19 +723,40 @@ class App(tk.Tk):
         except:
             pass
 
+        # Load translation language settings
+        try:
+            source_lang = self.settings.get("source_language", "auto")
+            target_lang = self.settings.get("target_language", "none")
+
+            # Set source language
+            source_values = self.source_combo.cget("values")
+            if source_lang in source_values:
+                self.source_combo.set(source_lang)
+
+            # Set target language
+            target_values = self.target_combo.cget("values")
+            if target_lang in target_values:
+                self.target_combo.set(target_lang)
+        except Exception as e:
+            print(f"Error loading language settings: {e}")
+
+        # Set initial trigger field visibility based on trigger mode
+        if self.ai_available:
+            self.on_trigger_changed()
+
         # Set initial window geometry based on mode
         if self.text_visible:
-            self.geometry("900x980")  # Full mode
+            self.geometry("900x1000")  # Full mode
         else:
-            self.geometry("400x980")  # Minimal mode (default)
+            self.geometry("400x1000")  # Minimal mode (default)
 
         # Save settings on window close
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def on_new_transcription(self, text):
         """Called when NEW transcription text arrives. Auto-types if enabled."""
-        # Accumulate for TTS (capture ALL speech, not just proofread)
-        if self.tts_available and "selected" in self.tts_check.state():
+        # Accumulate for TTS if Whisper source is selected
+        if self.tts_available and "selected" in self.tts_check.state() and self.tts_source_active == "whisper":
             self.tts_session_text += text + " "
 
         # Show waiting indicator if we're in Translation or AI mode
@@ -726,6 +785,10 @@ class App(tk.Tk):
 
     def on_new_translation(self, text):
         """Called when NEW translated/proofread text arrives. Auto-types if Translation or AI mode selected."""
+        # Accumulate for TTS if Translation source is selected
+        if self.tts_available and "selected" in self.tts_check.state() and self.tts_source_active == "translation":
+            self.tts_session_text += text + " "
+
         # Auto-type Translation or AI output if those modes are selected
         if self.autotype_mode_active in ("Translation", "AI") and text:
             # Clear waiting message and show auto-typing indicator
@@ -780,6 +843,10 @@ class App(tk.Tk):
 
     def on_new_proofread(self, text):
         """Called when NEW proofread text arrives. Auto-types if AI mode selected."""
+        # Accumulate for TTS if AI source is selected
+        if self.tts_available and "selected" in self.tts_check.state() and self.tts_source_active == "ai":
+            self.tts_session_text += text + " "
+
         # Auto-type proofread output if AI mode is selected
         if self.autotype_mode_active == "AI" and text:
             # Clear waiting message and show auto-typing indicator
@@ -896,11 +963,27 @@ class App(tk.Tk):
                     widget.config(state="normal")  # For Label widgets
 
     def on_translate_mode_changed(self):
-        """Handle Translate Only checkbox - disable/enable task controls."""
+        """Handle Translate Only checkbox - disable/enable task controls and auto-enable AI."""
         if not self.ai_available:
             return
 
         translate_only = "selected" in self.ai_translate_only_check.state()
+        translate_output = "selected" in self.ai_translate_check.state()
+
+        # Validate target language is set before allowing translation
+        target = self.target_combo.get()
+        if (translate_only or translate_output) and (target is None or target == "none"):
+            # Uncheck the option and show warning
+            if translate_only:
+                self.ai_translate_only_check.state(("!selected",))
+            if translate_output:
+                self.ai_translate_check.state(("!selected",))
+            self.status_label.config(text="⚠ Please select translation target language first", foreground="red")
+            return
+
+        # Auto-enable AI if translation features are used
+        if translate_only or translate_output:
+            self.ai_check.state(("selected",))
 
         if translate_only:
             # Translate Only mode: disable task and translate output checkbox
@@ -919,7 +1002,8 @@ class App(tk.Tk):
 
         # Set flag to request manual processing
         self.manual_trigger_requested[0] = True
-        print("[GUI] Manual AI processing requested", flush=True)
+        if self.debug_enabled:
+            print("[GUI] Manual AI processing requested", flush=True)
 
     def finalize_tts_session(self):
         """Generate TTS audio from accumulated session text."""
@@ -951,8 +1035,14 @@ class App(tk.Tk):
         self.vram_label.config(text=vram_info)
 
     def on_target_changed(self, event=None):
-        """Handle target language changes - can add validation here if needed."""
-        pass  # No longer needed with new UI design
+        """Handle target language changes - turn off Translate Output if target is none."""
+        if not self.ai_available:
+            return
+
+        target = self.target_combo.get()
+        if target == "none" or target is None:
+            # Turn off Translate Output checkbox if target is none
+            self.ai_translate_check.state(("!selected",))
 
     def on_trigger_changed(self, event=None):
         """Update visible controls based on trigger mode selection."""
@@ -1019,6 +1109,28 @@ class App(tk.Tk):
             self.after(0, lambda: self.tts_status_label.config(
                 text=f"TTS error: {error_msg}", foreground="red"))
 
+    def on_tts_source_changed(self, source):
+        """Handle TTS source selection - make checkboxes mutually exclusive."""
+        if not self.tts_available:
+            return
+
+        # Update active source
+        self.tts_source_active = source
+
+        # Uncheck all others
+        if source == "whisper":
+            self.tts_source_whisper.state(("selected",))
+            self.tts_source_ai.state(("!selected",))
+            self.tts_source_translation.state(("!selected",))
+        elif source == "ai":
+            self.tts_source_whisper.state(("!selected",))
+            self.tts_source_ai.state(("selected",))
+            self.tts_source_translation.state(("!selected",))
+        else:  # translation
+            self.tts_source_whisper.state(("!selected",))
+            self.tts_source_ai.state(("!selected",))
+            self.tts_source_translation.state(("selected",))
+
     def toggle_text_display(self):
         """Toggle visibility of text panes."""
         if self.text_visible:
@@ -1031,12 +1143,12 @@ class App(tk.Tk):
             self.columnconfigure(0, weight=1, minsize=350)
             self.columnconfigure(1, weight=0)  # Text column won't expand
 
-            # Adjust minimum size for minimal mode (never below 400x980)
-            self.minsize(400, 980)
-            self.maxsize(10000, 980)  # Limit max height to 980px
+            # Adjust minimum size for minimal mode (never below 400x1000)
+            self.minsize(400, 1000)
+            self.maxsize(10000, 1000)  # Limit max height to 1000px
 
             # Resize window to minimal width
-            self.geometry("400x980")
+            self.geometry("400x1000")
         else:
             # FULL MODE: Show text frame
             self.text_frame.grid()
@@ -1048,11 +1160,11 @@ class App(tk.Tk):
             self.columnconfigure(1, weight=1)  # Text column expands
 
             # Restore minimum size for full mode
-            self.minsize(900, 980)
-            self.maxsize(10000, 980)  # Limit max height to 980px
+            self.minsize(900, 1000)
+            self.maxsize(10000, 1000)  # Limit max height to 1000px
 
-            # Resize window to show both columns (max height 980px)
-            self.geometry("900x980")
+            # Resize window to show both columns (max height 1000px)
+            self.geometry("900x1000")
 
         # Save state to settings
         self.settings.set("text_visible", self.text_visible)
@@ -1083,6 +1195,7 @@ class App(tk.Tk):
                 tts_save_file = "selected" in self.tts_save_check.state()
                 self.settings.set("tts_enabled", tts_enabled)
                 self.settings.set("tts_save_file", tts_save_file)
+                self.settings.set("tts_source", self.tts_source_active)
             except Exception as e:
                 print(f"Error saving TTS settings: {e}")
 
@@ -1127,6 +1240,15 @@ class App(tk.Tk):
             except Exception as e:
                 print(f"Error saving AI settings: {e}")
 
+        # Save translation language settings
+        try:
+            source_lang = self.source_combo.get()
+            target_lang = self.target_combo.get()
+            self.settings.set("source_language", source_lang)
+            self.settings.set("target_language", target_lang)
+        except Exception as e:
+            print(f"Error saving language settings: {e}")
+
         # Save auto-stop settings
         try:
             auto_stop_enabled = "selected" in self.autostop_check.state()
@@ -1165,6 +1287,24 @@ class App(tk.Tk):
             self.mic_combo.current(0)
 
     def start(self):
+        # Validation: Check if target language is required but not set
+        target = self.target_combo.get()
+
+        # Check if translation is needed
+        needs_translation = False
+        if self.ai_available:
+            translate_only = self.ai_translate_only_check.instate(("selected",))
+            translate_output = self.ai_translate_check.instate(("selected",))
+            ai_enabled = self.ai_check.instate(("selected",))
+
+            if translate_only or (ai_enabled and translate_output):
+                needs_translation = True
+
+        # Validate target language
+        if needs_translation and (target is None or target == "none"):
+            self.status_label.config(text="⚠ Please select a target language for translation", foreground="red")
+            return
+
         self.ready[0] = False
         self.error[0] = None
         self.status_label.config(text="")
@@ -1189,7 +1329,7 @@ class App(tk.Tk):
         memory = int(self.memory_spin.get())
         patience = float(self.patience_spin.get())
         timeout = float(self.timeout_spin.get())
-        prompt = self.prompt_entry.get()
+        prompt = ""  # Removed prompt entry - using custom tasks instead
         source = None if self.source_combo.get() == "auto" else self.source_combo.get()
         target = None if self.target_combo.get() == "none" else self.target_combo.get()
         device = self.device_combo.get()
@@ -1265,6 +1405,8 @@ class App(tk.Tk):
             ai_trigger_mode = "manual"
             ai_process_interval = 999999  # Large value (won't be used)
             ai_process_words = None
+            if self.debug_enabled:
+                print(f"[GUI] AI Trigger Mode: Manual", flush=True)
         else:
             # Automatic mode: use configured trigger settings
             if self.ai_available:
@@ -1275,6 +1417,13 @@ class App(tk.Tk):
             ai_trigger_mode = self.ai_trigger_combo.get().lower() if self.ai_available else "time"
             ai_process_words = int(self.ai_words_spin.get()) if self.ai_available and ai_trigger_mode == "words" else None
 
+            # Debug logging
+            if self.debug_enabled:
+                if ai_trigger_mode == "time":
+                    print(f"[GUI] AI Trigger Mode: Time, Interval: {ai_process_interval}s", flush=True)
+                else:
+                    print(f"[GUI] AI Trigger Mode: Words, Word Count: {ai_process_words}", flush=True)
+
         # Get auto-stop parameters from GUI
         auto_stop_enabled = "selected" in self.autostop_check.state()
         auto_stop_minutes = int(self.autostop_spin.get())
@@ -1284,21 +1433,24 @@ class App(tk.Tk):
         if ai_processor and ai_processor.mode == "proofread_translate":
             prres_queue = self.pr_text.res_queue
             # Enable proofread window and show buttons
-            print(f"[GUI] Enabling proofread window (mode: {ai_processor.mode})", flush=True)
-            print(f"[GUI] prres_queue ID: {id(prres_queue)}", flush=True)
-            print(f"[GUI] self.pr_text.res_queue ID: {id(self.pr_text.res_queue)}", flush=True)
+            if self.debug_enabled:
+                print(f"[GUI] Enabling proofread window (mode: {ai_processor.mode})", flush=True)
+                print(f"[GUI] prres_queue ID: {id(prres_queue)}", flush=True)
+                print(f"[GUI] self.pr_text.res_queue ID: {id(self.pr_text.res_queue)}", flush=True)
             self.pr_text.config(state="normal", background="white")
             self.ai_output_buttons_frame.grid()
         elif ai_processor and ai_processor.mode == "proofread":
             # Enable proofread window for proofread-only mode, show buttons
             prres_queue = self.pr_text.res_queue  # FIX: Set queue for proofread-only mode
-            print(f"[GUI] Enabling proofread window (mode: {ai_processor.mode})", flush=True)
-            print(f"[GUI] prres_queue ID: {id(prres_queue)}", flush=True)
+            if self.debug_enabled:
+                print(f"[GUI] Enabling proofread window (mode: {ai_processor.mode})", flush=True)
+                print(f"[GUI] prres_queue ID: {id(prres_queue)}", flush=True)
             self.pr_text.config(state="normal", background="white")
             self.ai_output_buttons_frame.grid()
         else:
             # Disable proofread window and hide buttons (keep visible but grayed)
-            print(f"[GUI] Disabling proofread window (mode: {ai_processor.mode if ai_processor else 'None'})", flush=True)
+            if self.debug_enabled:
+                print(f"[GUI] Disabling proofread window (mode: {ai_processor.mode if ai_processor else 'None'})", flush=True)
             self.pr_text.config(state="disabled", background="#f0f0f0")
             self.ai_output_buttons_frame.grid_remove()
 
@@ -1306,9 +1458,121 @@ class App(tk.Tk):
         self.starting()
         self.update_level()
 
+    def lock_ui_controls(self):
+        """Lock UI controls that shouldn't be changed while running."""
+        # Lock model settings
+        self.model_combo.state(("disabled",))
+        self.device_combo.state(("disabled",))
+        self.autotype_mode.state(("disabled",))
+
+        # Lock translation language dropdowns
+        self.source_combo.state(("disabled",))
+        self.target_combo.state(("disabled",))
+
+        # Lock AI settings
+        if self.ai_available:
+            # Get current AI state
+            ai_enabled = "selected" in self.ai_check.state()
+
+            # Lock Enable AI checkbox
+            self.ai_check.state(("disabled",))
+
+            # Lock AI controls
+            self.ai_translate_only_check.state(("disabled",))
+            self.ai_translate_check.state(("disabled",))
+            self.ai_persona_combo.state(("disabled",))
+            self.ai_model_combo.state(("disabled",))
+            self.ai_manual_mode_check.state(("disabled",))
+
+            # Lock trigger controls
+            self.ai_trigger_combo.state(("disabled",))
+            self.ai_interval_combo.state(("disabled",))
+
+        # Lock TTS controls
+        if self.tts_available:
+            # Lock Enable TTS checkbox
+            self.tts_check.state(("disabled",))
+
+            # Lock all TTS source checkboxes
+            self.tts_source_whisper.state(("disabled",))
+            self.tts_source_ai.state(("disabled",))
+            self.tts_source_translation.state(("disabled",))
+
+            # Lock TTS output controls
+            self.tts_save_check.state(("disabled",))
+            self.tts_format_combo.state(("disabled",))
+            self.tts_browse_button.state(("disabled",))
+            self.tts_clear_button.state(("disabled",))
+
+    def unlock_ui_controls(self):
+        """Unlock UI controls after stopping."""
+        # Unlock model settings
+        self.model_combo.state(("!disabled",))
+
+        # Explicitly remove disabled state before setting readonly
+        self.device_combo.state(("!disabled",))
+        self.device_combo.state(("readonly",))
+
+        self.autotype_mode.state(("!disabled",))
+        self.autotype_mode.state(("readonly",))
+
+        # Unlock translation language dropdowns
+        self.source_combo.state(("!disabled",))
+        self.source_combo.state(("readonly",))
+
+        self.target_combo.state(("!disabled",))
+        self.target_combo.state(("readonly",))
+
+        # Unlock AI settings
+        if self.ai_available:
+            # Unlock Enable AI checkbox
+            self.ai_check.state(("!disabled",))
+
+            # Re-enable based on current state
+            translate_only = "selected" in self.ai_translate_only_check.state()
+            self.ai_translate_only_check.state(("!disabled",))
+
+            # If Translate Only is selected, keep Translate Output disabled
+            if translate_only:
+                self.ai_translate_check.state(("disabled",))
+            else:
+                self.ai_translate_check.state(("!disabled",))
+
+            self.ai_manual_mode_check.state(("!disabled",))
+
+            # Re-apply translate-only logic for task combo
+            if translate_only:
+                self.ai_persona_combo.state(("disabled",))
+            else:
+                self.ai_persona_combo.state(("!disabled",))
+
+            self.ai_model_combo.state(("!disabled",))
+
+            # Unlock trigger controls
+            self.ai_trigger_combo.state(("!disabled",))
+            self.ai_interval_combo.state(("!disabled",))
+
+        # Unlock TTS controls
+        if self.tts_available:
+            # Unlock Enable TTS checkbox
+            self.tts_check.state(("!disabled",))
+
+            # Unlock all TTS source checkboxes
+            self.tts_source_whisper.state(("!disabled",))
+            self.tts_source_ai.state(("!disabled",))
+            self.tts_source_translation.state(("!disabled",))
+
+            # Unlock TTS output controls
+            self.tts_save_check.state(("!disabled",))
+            self.tts_format_combo.state(("!disabled",))
+            self.tts_browse_button.state(("!disabled",))
+            self.tts_clear_button.state(("!disabled",))
+
     def starting(self):
         if self.ready[0] is True:
             self.control_button.config(text="Stop", command=self.stop, state="normal")
+            # Lock UI controls when started
+            self.lock_ui_controls()
             return
         if self.ready[0] is None:
             if self.error[0]:
@@ -1318,6 +1582,17 @@ class App(tk.Tk):
         self.after(100, self.starting)
 
     def stop(self):
+        # Check if already stopped (auto-stop case)
+        if self.ready[0] is None:
+            # Already stopped - just update UI immediately
+            self.autotype_mode_active = "Off"
+            self.control_button.config(text="Start", command=self.start, state="normal")
+            self.level_bar['value'] = 0
+            self.unlock_ui_controls()
+            self.finalize_tts_session()
+            return
+
+        # Normal stop - signal core thread to stop
         self.autotype_mode_active = "Off"  # Disable autotype when stopping
         self.ready[0] = False
         self.control_button.config(text="Stopping...", command=None, state="disabled")
@@ -1328,6 +1603,9 @@ class App(tk.Tk):
             self.control_button.config(text="Start", command=self.start, state="normal")
             self.level_bar['value'] = 0
 
+            # Unlock UI controls when stopped
+            self.unlock_ui_controls()
+
             # Finalize TTS session when stopping completes
             self.finalize_tts_session()
             return
@@ -1336,6 +1614,14 @@ class App(tk.Tk):
     def update_level(self):
         if self.ready[0] is None:
             self.level_bar['value'] = 0
+            # Check if we need to trigger stopping cleanup (auto-stop case)
+            # If button shows "Stop", it means auto-stop happened and we need to update UI
+            if self.control_button['text'] == "Stop":
+                # Auto-stop detected - trigger stopping cleanup
+                self.autotype_mode_active = "Off"  # Disable autotype
+                self.control_button.config(text="Start", command=self.start, state="normal")
+                self.unlock_ui_controls()
+                self.finalize_tts_session()
             return
         # Update level bar with current audio level
         self.level_bar['value'] = min(100, self.level[0])
