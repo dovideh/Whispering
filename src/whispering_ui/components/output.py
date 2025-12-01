@@ -55,10 +55,10 @@ def create_output_panels(state: AppState):
     count_labels = {}
 
     with output_container:
-        stack = ui.column().classes('output-stack w-full h-full flex-1')
+        stack = ui.element('div').classes('output-stack flex flex-col w-full h-full flex-1')
         for config in panel_defs:
             with stack:
-                panel = ui.element('div').classes('output-panel').style('flex: 1; min-height: 0;')
+                panel = ui.element('div').classes('output-panel').style('flex: 1 1 0; min-height: 0;')
                 with panel:
                     with ui.row().classes('panel-header w-full'):
                         ui.label(config['title']).classes('font-bold')

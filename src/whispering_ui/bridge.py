@@ -225,78 +225,42 @@ class ProcessingBridge:
             res = self.ts_queue.get()
             if res:
                 done, curr = res
-                done_text = done or ""
-                curr_text = curr or ""
-                new_text = ""
-
-                if done_text:
-                    prev_committed = self._whisper_committed if len(done_text) >= len(self._whisper_committed) else ""
-                    if len(done_text) > len(prev_committed):
-                        new_text = done_text[len(prev_committed):]
-                    self._whisper_committed = done_text
-
-                    if new_text:
-                        if self.state.tts_enabled and self.state.tts_source == "whisper":
-                            self.tts_session_text += new_text + " "
-
-                        if self.state.autotype_mode == "Whisper" and new_text.strip():
-                            self._autotype_text(new_text)
-
-                preview = self._whisper_committed + curr_text
-                if preview != self.state.whisper_text:
-                    self.state.whisper_text = preview
+                self._update_text_buffer(
+                    done_text=done,
+                    curr_text=curr,
+                    committed_attr='_whisper_committed',
+                    state_attr='whisper_text',
+                    tts_source='whisper',
+                    autotype_mode='Whisper'
+                )
 
         # Poll translation queue (Queue wraps PairDeque)
         while self.tl_queue:
             res = self.tl_queue.get()
             if res:
                 done, curr = res
-                done_text = done or ""
-                curr_text = curr or ""
-                new_text = ""
-
-                if done_text:
-                    prev_committed = self._translation_committed if len(done_text) >= len(self._translation_committed) else ""
-                    if len(done_text) > len(prev_committed):
-                        new_text = done_text[len(prev_committed):]
-                    self._translation_committed = done_text
-
-                    if new_text:
-                        if self.state.tts_enabled and self.state.tts_source == "translation":
-                            self.tts_session_text += new_text + " "
-
-                        if self.state.autotype_mode == "Translation" and new_text.strip():
-                            self._autotype_text(new_text)
-
-                preview = self._translation_committed + curr_text
-                if preview != self.state.translation_text:
-                    self.state.translation_text = preview
+                self._update_text_buffer(
+                    done_text=done,
+                    curr_text=curr,
+                    committed_attr='_translation_committed',
+                    state_attr='translation_text',
+                    tts_source='translation',
+                    autotype_mode='Translation'
+                )
 
         # Poll AI proofread queue (Queue wraps PairDeque)
         while self.pr_queue:
             res = self.pr_queue.get()
             if res:
                 done, curr = res
-                done_text = done or ""
-                curr_text = curr or ""
-                new_text = ""
-
-                if done_text:
-                    prev_committed = self._ai_committed if len(done_text) >= len(self._ai_committed) else ""
-                    if len(done_text) > len(prev_committed):
-                        new_text = done_text[len(prev_committed):]
-                    self._ai_committed = done_text
-
-                    if new_text:
-                        if self.state.tts_enabled and self.state.tts_source == "ai":
-                            self.tts_session_text += new_text + " "
-
-                        if self.state.autotype_mode == "AI" and new_text.strip():
-                            self._autotype_text(new_text)
-
-                preview = self._ai_committed + curr_text
-                if preview != self.state.ai_text:
-                    self.state.ai_text = preview
+                self._update_text_buffer(
+                    done_text=done,
+                    curr_text=curr,
+                    committed_attr='_ai_committed',
+                    state_attr='ai_text',
+                    tts_source='ai',
+                    autotype_mode='AI'
+                )
 
     def _validate_settings(self) -> bool:
         """Validate settings before starting. Returns True if valid."""
@@ -412,6 +376,40 @@ class ProcessingBridge:
             threading.Thread(target=do_type, daemon=True).start()
         except ImportError:
             self.state.status_message = "autotype.py not found"
+
+    def _update_text_buffer(self, *, done_text: str, curr_text: str, committed_attr: str,
+                            state_attr: str, tts_source: Optional[str], autotype_mode: Optional[str]):
+        """Accumulate finalized text and refresh preview outputs."""
+        done_text = done_text or ""
+        curr_text = curr_text or ""
+
+        committed_value = getattr(self, committed_attr)
+        new_segment = ""
+
+        if done_text:
+            if committed_value and done_text.startswith(committed_value):
+                new_segment = done_text[len(committed_value):]
+                setattr(self, committed_attr, done_text)
+            elif committed_value and committed_value.endswith(done_text):
+                new_segment = ""
+            else:
+                setattr(self, committed_attr, committed_value + done_text)
+                new_segment = done_text
+
+            committed_value = getattr(self, committed_attr)
+        else:
+            committed_value = getattr(self, committed_attr)
+
+        preview = committed_value + curr_text
+        if getattr(self.state, state_attr) != preview:
+            setattr(self.state, state_attr, preview)
+
+        if new_segment:
+            if tts_source and self.state.tts_enabled and self.state.tts_source == tts_source:
+                self.tts_session_text += new_segment + " "
+
+            if autotype_mode and self.state.autotype_mode == autotype_mode and new_segment.strip():
+                self._autotype_text(new_segment)
 
     def manual_ai_trigger(self):
         """Manually trigger AI processing."""

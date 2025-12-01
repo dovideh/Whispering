@@ -179,6 +179,20 @@ def main():
                 margin-bottom: 0.25rem;
             }
 
+            .output-panel .q-field {
+                flex: 1 1 0;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+            }
+
+            .output-panel .q-field__inner,
+            .output-panel .q-field__control,
+            .output-panel .q-field__native {
+                flex: 1 1 0;
+                min-height: 0;
+            }
+
             .output-textarea {
                 flex: 1 1 0;
                 min-height: 0;
@@ -186,6 +200,7 @@ def main():
                 height: 100%;
                 resize: none;
                 font-family: Menlo, Consolas, 'Liberation Mono', monospace;
+                padding-bottom: 0;
             }
 
             .section-muted {
