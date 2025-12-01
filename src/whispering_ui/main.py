@@ -106,15 +106,15 @@ def main():
 
     # Create main container
     with ui.row().classes('w-full h-screen'):
-        # Sidebar (always visible)
-        create_sidebar(state, bridge)
-
         # Output panels (always created, visibility controlled by state)
         output_container = create_output_panels(state)
 
         # Set initial visibility
         if not state.text_visible:
             output_container.set_visibility(False)
+
+        # Sidebar (always visible) - created after output so it can control it
+        create_sidebar(state, bridge, output_container)
 
     # === SAVE SETTINGS ON EXIT ===
     def save_settings_on_exit():
