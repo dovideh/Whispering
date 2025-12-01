@@ -152,19 +152,19 @@ def main():
             .output-stack {
                 display: flex;
                 flex-direction: column;
-                gap: 0.75rem;
+                gap: 0.35rem;
                 flex: 1;
                 min-height: 0;
                 height: 100%;
                 width: 100%;
-                padding: 0.75rem;
+                padding: 0.4rem 0.5rem 0.4rem 0.4rem;
             }
 
             .output-panel {
                 background: #181818;
                 border: 1px solid #2a2a2a;
                 border-radius: 8px;
-                padding: 0.5rem 0.75rem;
+                padding: 0.35rem 0.55rem 0.3rem;
                 display: flex;
                 flex-direction: column;
                 min-height: 0;
@@ -176,7 +176,7 @@ def main():
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                margin-bottom: 0.25rem;
+                margin-bottom: 0.05rem;
             }
 
             .output-panel .q-field {
@@ -184,6 +184,9 @@ def main():
                 display: flex;
                 flex-direction: column;
                 min-height: 0;
+                margin: 0;
+                --q-field-padding: 0;
+                --q-field-label-padding: 0;
             }
 
             .output-panel .q-field__inner,
@@ -191,6 +194,26 @@ def main():
             .output-panel .q-field__native {
                 flex: 1 1 0;
                 min-height: 0;
+                height: 100%;
+                width: 100%;
+            }
+
+            .output-panel .q-field__bottom,
+            .output-panel .q-field__messages {
+                display: none;
+            }
+
+            .output-panel .q-field__control {
+                align-items: stretch;
+            }
+
+            .output-panel .q-field__native textarea {
+                height: 100% !important;
+                min-height: 0;
+                width: 100%;
+                resize: none;
+                padding: 0;
+                margin: 0;
             }
 
             .output-textarea {
@@ -201,6 +224,7 @@ def main():
                 resize: none;
                 font-family: Menlo, Consolas, 'Liberation Mono', monospace;
                 padding-bottom: 0;
+                margin: 0;
             }
 
             .section-muted {
