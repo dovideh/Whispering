@@ -10,7 +10,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from nicegui import ui
+from nicegui import app, ui
 import core
 from settings import Settings
 from .state import AppState
@@ -157,7 +157,7 @@ def main():
         settings.save()
 
     # Register cleanup handler
-    ui.on_shutdown(save_settings_on_exit)
+    app.on_shutdown(save_settings_on_exit)
 
     # === RUN APPLICATION ===
     # Run as native desktop window
