@@ -104,17 +104,20 @@ def main():
     # === UI LAYOUT ===
     ui.page_title('Whispering')
 
-    # Create main container
+    # Create main container - sidebar on left, output on right
     with ui.row().classes('w-full h-screen'):
-        # Output panels (always created, visibility controlled by state)
+        # Create output panels first (but will be positioned on right)
         output_container = create_output_panels(state)
 
-        # Set initial visibility
+        # Sidebar on left - pass output container so it can toggle visibility
+        sidebar_container = create_sidebar(state, bridge, output_container)
+
+        # Move sidebar to the left (before output in DOM order)
+        sidebar_container.move(output_container)
+
+        # Set initial visibility of output
         if not state.text_visible:
             output_container.set_visibility(False)
-
-        # Sidebar (always visible) - created after output so it can control it
-        create_sidebar(state, bridge, output_container)
 
     # === SAVE SETTINGS ON EXIT ===
     def save_settings_on_exit():
