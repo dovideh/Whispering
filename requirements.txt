@@ -30,3 +30,5 @@ pyperclip
 # NiceGUI for modern UI
 nicegui>=1.4.0
 pywebview>=4.0.0  # Required for NiceGUI native mode
+PyQt6>=6.0.0  # GUI backend for pywebview native mode
+PyQt6-WebEngine>=6.0.0  # WebEngine for pywebview
