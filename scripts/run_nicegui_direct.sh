@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run Whispering with NiceGUI interface
+# Run Whispering with NiceGUI interface (direct execution)
 
 # Get the project directory (parent of scripts directory)
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,7 +8,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if ! python3 -c "import nicegui" 2>/dev/null; then
     echo "Error: NiceGUI is not installed."
     echo "Please install dependencies:"
-    echo "  pip install nicegui pyperclip"
+    echo "  pip install nicegui pyperclip pywebview"
     exit 1
 fi
 
@@ -29,7 +29,7 @@ export SDL_AUDIODRIVER=pulse
 # Add src to Python path
 export PYTHONPATH="$PROJECT_DIR/src:$PYTHONPATH"
 
-# Change to src directory and run (direct execution avoids module loading warning)
+# Change to src directory and run directly (avoids module loading warning)
 cd "$PROJECT_DIR/src"
 echo "Starting Whispering with NiceGUI interface..."
 python3 whispering_ui/main.py "$@"

@@ -29,3 +29,4 @@ pyperclip
 
 # NiceGUI for modern UI
 nicegui>=1.4.0
+pywebview>=4.0.0  # Required for NiceGUI native mode

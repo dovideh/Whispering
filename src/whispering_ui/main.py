@@ -160,12 +160,21 @@ def main():
     app.on_shutdown(save_settings_on_exit)
 
     # === RUN APPLICATION ===
-    # Run as native desktop window
+    # Try to run as native desktop window, fall back to web if pywebview not available
+    try:
+        import pywebview
+        native_mode = True
+    except ImportError:
+        print("Note: pywebview not installed. Running in browser mode.")
+        print("Install pywebview for native window: pip install pywebview")
+        native_mode = False
+
     ui.run(
         title='Whispering',
-        native=True,
+        native=native_mode,
         window_size=(400 if not state.text_visible else 900, 1000),
-        reload=False
+        reload=False,
+        show=not native_mode  # Auto-open browser if not native mode
     )
 
 
