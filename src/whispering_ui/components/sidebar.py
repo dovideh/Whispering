@@ -6,8 +6,8 @@ Control panel with all settings and controls - uses direct state updates
 
 from nicegui import ui
 import core
-from ..state import AppState
-from ..bridge import ProcessingBridge
+from whispering_ui.state import AppState
+from whispering_ui.bridge import ProcessingBridge
 
 
 def create_sidebar(state: AppState, bridge: ProcessingBridge):

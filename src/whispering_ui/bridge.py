@@ -11,7 +11,7 @@ from nicegui import ui
 
 import core
 from cmque import DataDeque, PairDeque
-from .state import AppState
+from whispering_ui.state import AppState
 
 
 class ProcessingBridge:

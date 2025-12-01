@@ -13,10 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from nicegui import app, ui
 import core
 from settings import Settings
-from .state import AppState
-from .bridge import ProcessingBridge
-from .components.sidebar import create_sidebar
-from .components.output import create_output_panels
+from whispering_ui.state import AppState
+from whispering_ui.bridge import ProcessingBridge
+from whispering_ui.components.sidebar import create_sidebar
+from whispering_ui.components.output import create_output_panels
 
 
 def main():

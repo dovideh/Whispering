@@ -5,7 +5,7 @@ Text display panels for Whisper, AI, and Translation output
 """
 
 from nicegui import ui
-from ..state import AppState
+from whispering_ui.state import AppState
 
 
 def create_output_panels(state: AppState):
