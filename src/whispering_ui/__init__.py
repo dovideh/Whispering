@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NiceGUI UI Package
+Whispering NiceGUI UI Package
 """
 
 from .main import main

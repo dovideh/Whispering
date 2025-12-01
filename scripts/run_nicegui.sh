@@ -32,4 +32,4 @@ export PYTHONPATH="$PROJECT_DIR/src:$PYTHONPATH"
 # Change to src directory and run
 cd "$PROJECT_DIR/src"
 echo "Starting Whispering with NiceGUI interface..."
-python3 -m ui.main "$@"
+python3 -m whispering_ui.main "$@"

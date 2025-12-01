@@ -23,5 +23,5 @@ except ImportError:
 
 # Launch the NiceGUI application
 print("Starting Whispering with NiceGUI interface...")
-from ui.main import main
+from whispering_ui.main import main
 main()

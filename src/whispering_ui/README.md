@@ -1,6 +1,8 @@
-# NiceGUI UI Module
+# Whispering NiceGUI UI Module
 
 This directory contains the modular NiceGUI-based user interface for Whispering.
+
+**Note:** This package is named `whispering_ui` (not `ui`) to avoid conflicts with NiceGUI's own `ui` module.
 
 ## Architecture
 
@@ -39,14 +41,12 @@ The UI is organized into separate concerns:
 To run the NiceGUI version:
 
 ```bash
+# Use the launcher script
+./scripts/run_nicegui.sh
+
+# Or from src directory:
 cd src
-python -m ui.main
-```
-
-Or from the project root:
-
-```bash
-python src/ui/main.py
+python -m whispering_ui.main
 ```
 
 ## Key Differences from tkinter Version
