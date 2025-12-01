@@ -25,3 +25,7 @@ conformer>=0.3.2
 
 # Optional: for auto-type feature
 pyautogui
+pyperclip
+
+# NiceGUI for modern UI
+nicegui>=1.4.0
