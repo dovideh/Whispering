@@ -41,7 +41,14 @@ def main():
     state.timeout = settings.get("timeout", 5.0)
     state.source_language = settings.get("source_language", "auto")
     state.target_language = settings.get("target_language", "none")
-    state.autotype_mode = settings.get("autotype", "Off")
+
+    # Handle autotype setting - convert legacy boolean to string if needed
+    autotype_val = settings.get("autotype", "Off")
+    if isinstance(autotype_val, bool):
+        state.autotype_mode = "Off"  # Convert old boolean format to new string format
+    else:
+        state.autotype_mode = autotype_val
+
     state.auto_stop_enabled = settings.get("auto_stop_enabled", False)
     state.auto_stop_minutes = settings.get("auto_stop_minutes", 5)
 
