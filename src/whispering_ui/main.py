@@ -160,17 +160,25 @@ def main():
     app.on_shutdown(save_settings_on_exit)
 
     # === RUN APPLICATION ===
-    # Disable native mode - just run in browser mode
-    # Native mode requires GTK or QT which adds complexity
-    print("Starting web interface at http://127.0.0.1:8000")
-    print("Press Ctrl+C to stop")
+    # Try native mode first, fall back to browser if backend unavailable
+    native_mode = False
+    try:
+        # Check if PyQt6 is available (easiest backend for pywebview)
+        import PyQt6
+        native_mode = True
+        print("\n🚀 Starting Whispering in native window mode...")
+    except ImportError:
+        print("\n⚠️  PyQt6 not found. Running in browser mode.")
+        print("   For native window, install: pip install PyQt6 PyQt6-WebEngine")
+        print("   Starting web interface at http://127.0.0.1:8000\n")
 
     ui.run(
         title='Whispering',
-        native=False,  # Run in browser mode for simplicity
+        native=native_mode,
         port=8000,
+        window_size=(400 if not state.text_visible else 1200, 800),
         reload=False,
-        show=True  # Auto-open browser
+        show=not native_mode  # Only auto-open browser in browser mode
     )
 
 
