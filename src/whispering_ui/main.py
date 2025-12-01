@@ -109,9 +109,12 @@ def main():
         # Sidebar (always visible)
         create_sidebar(state, bridge)
 
-        # Output panels (conditionally visible)
-        if state.text_visible:
-            create_output_panels(state)
+        # Output panels (always created, visibility controlled by state)
+        output_container = create_output_panels(state)
+
+        # Set initial visibility
+        if not state.text_visible:
+            output_container.set_visibility(False)
 
     # === SAVE SETTINGS ON EXIT ===
     def save_settings_on_exit():

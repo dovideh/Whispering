@@ -14,6 +14,9 @@ def create_output_panels(state: AppState):
 
     Args:
         state: Application state
+
+    Returns:
+        The output container element for visibility control
     """
 
     output_container = ui.column().classes('flex-grow p-4 gap-3')
@@ -70,3 +73,5 @@ def create_output_panels(state: AppState):
             trans_count.text = f'{tc} chars, {tw} words'
 
         ui.timer(0.2, update_outputs)
+
+    return output_container

@@ -10,13 +10,14 @@ from whispering_ui.state import AppState
 from whispering_ui.bridge import ProcessingBridge
 
 
-def create_sidebar(state: AppState, bridge: ProcessingBridge):
+def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=None):
     """
     Create the sidebar control panel with simplified bindings.
 
     Args:
         state: Application state
         bridge: Processing bridge
+        output_container: Optional output container for show/hide control
     """
 
     # Container for all controls
@@ -44,7 +45,7 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge):
         # === TOGGLE TEXT BUTTON ===
         toggle_btn = ui.button(
             'Show Text ▶' if not state.text_visible else 'Hide Text ◀',
-            on_click=lambda: _toggle_text(state, toggle_btn)
+            on_click=lambda: _toggle_text(state, toggle_btn, output_container)
         ).classes('w-full mb-2')
 
         ui.separator().classes('my-2')
@@ -193,10 +194,15 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge):
         ui.timer(0.1, update_ui)
 
 
-def _toggle_text(state: AppState, btn):
+def _toggle_text(state: AppState, btn, output_container):
     """Toggle text visibility."""
     state.text_visible = not state.text_visible
     btn.text = 'Hide Text ◀' if state.text_visible else 'Show Text ▶'
+
+    # Show/hide the output container
+    if output_container:
+        output_container.set_visibility(state.text_visible)
+
     ui.notify(f'Text panels {"shown" if state.text_visible else "hidden"}')
 
 
