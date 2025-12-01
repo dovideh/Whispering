@@ -46,6 +46,8 @@ class AppState:
     tts_save_file: bool = False
     tts_format: str = "wav"
     tts_voice_reference: Optional[str] = None
+    tts_voice_display_name: str = "Default"  # Display name for voice
+    tts_status_message: str = ""  # TTS status message
 
     # === Autotype Settings ===
     autotype_mode: str = "Off"  # "Off", "Whisper", "Translation", "AI"

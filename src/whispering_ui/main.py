@@ -85,6 +85,7 @@ def main():
         state.tts_enabled = settings.get("tts_enabled", False)
         state.tts_source = settings.get("tts_source", "whisper")
         state.tts_save_file = settings.get("tts_save_file", False)
+        state.tts_format = settings.get("tts_format", "wav")
     except Exception as e:
         print(f"TTS features not available: {e}")
         state.tts_available = False
@@ -159,6 +160,7 @@ def main():
             settings.set("tts_enabled", state.tts_enabled)
             settings.set("tts_source", state.tts_source)
             settings.set("tts_save_file", state.tts_save_file)
+            settings.set("tts_format", state.tts_format)
 
         settings.save()
 
