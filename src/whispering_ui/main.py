@@ -267,8 +267,8 @@ def main():
         # Sidebar on left - fixed width
         sidebar_container = create_sidebar(state, bridge, None).classes('sidebar-container')
 
-        # Output panels on right - flex grow
-        output_container = create_output_panels(state).classes('output-container')
+        # Output panels on right - flex grow (pass bridge for audio controls)
+        output_container = create_output_panels(state, bridge).classes('output-container')
 
         # Connect sidebar to output for show/hide
         sidebar_container._output_container = output_container

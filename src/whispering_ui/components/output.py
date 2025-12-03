@@ -8,12 +8,13 @@ from nicegui import ui
 from whispering_ui.state import AppState
 
 
-def create_output_panels(state: AppState):
+def create_output_panels(state: AppState, bridge=None):
     """
     Create output text panels with Copy/Cut buttons.
 
     Args:
         state: Application state
+        bridge: Processing bridge (optional, needed for audio controls)
 
     Returns:
         The output container element for visibility control
@@ -80,6 +81,26 @@ def create_output_panels(state: AppState):
                                 )
                             ).props('dense flat').classes('text-xs')
 
+                            # Add audio playback controls for AI panel in Q&A mode
+                            if config['key'] == 'ai' and bridge:
+                                # Play button
+                                play_btn = ui.button(
+                                    icon='play_arrow',
+                                    on_click=lambda b=bridge: b.replay_qa_audio()
+                                ).props('dense flat round size=sm').classes('text-xs')
+                                play_btn.visible = False  # Initially hidden
+
+                                # Stop button
+                                stop_btn = ui.button(
+                                    icon='stop',
+                                    on_click=lambda b=bridge: b.stop_qa_audio()
+                                ).props('dense flat round size=sm').classes('text-xs')
+                                stop_btn.visible = False  # Initially hidden
+
+                                # Store references for visibility control
+                                config['play_btn'] = play_btn
+                                config['stop_btn'] = stop_btn
+
                     textareas[config['key']] = ui.textarea(
                         placeholder=config['placeholder']
                     ).classes('w-full h-full flex-1 output-textarea').style('font-family: monospace; min-height: 0; height: 100%;').props('outlined readonly')
@@ -93,6 +114,17 @@ def create_output_panels(state: AppState):
 
                 chars, words = cfg['count_fn']()
                 count_labels[cfg['key']].text = f'{chars} chars, {words} words'
+
+                # Update audio playback controls visibility for AI panel
+                if cfg['key'] == 'ai' and 'play_btn' in cfg and 'stop_btn' in cfg:
+                    # Show controls if TTS is enabled, source is AI, and we have an audio file
+                    show_controls = (
+                        state.tts_enabled and
+                        state.tts_source == 'ai' and
+                        state.tts_audio_file is not None
+                    )
+                    cfg['play_btn'].visible = show_controls and not state.tts_is_playing
+                    cfg['stop_btn'].visible = show_controls and state.tts_is_playing
 
         ui.timer(0.2, update_outputs)
 

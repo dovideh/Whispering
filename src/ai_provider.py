@@ -172,7 +172,7 @@ class OpenRouterProvider:
 
 class AITextProcessor:
     """
-    High-level text processor for proofreading and translation.
+    High-level text processor for proofreading, translation, and custom personas (like Q&A).
     """
 
     def __init__(
@@ -181,7 +181,8 @@ class AITextProcessor:
         model_id: Optional[str] = None,
         mode: str = "proofread_translate",
         source_lang: Optional[str] = None,
-        target_lang: Optional[str] = None
+        target_lang: Optional[str] = None,
+        persona_id: Optional[str] = None
     ):
         """
         Initialize AI text processor.
@@ -189,34 +190,74 @@ class AITextProcessor:
         Args:
             config: AIConfig instance
             model_id: Model to use (defaults to config default)
-            mode: 'proofread', 'translate', or 'proofread_translate'
+            mode: 'proofread', 'translate', 'proofread_translate', or 'custom'
             source_lang: Source language (None or 'auto' for auto-detect)
             target_lang: Target language code (None for proofread-only mode)
+            persona_id: Custom persona ID (for mode='custom')
         """
         self.config = config
         self.provider = OpenRouterProvider(config, model_id)
         self.mode = mode
         self.source_lang = source_lang
         self.target_lang = target_lang
+        self.persona_id = persona_id
 
-        # Validate mode
-        if mode not in ['proofread', 'translate', 'proofread_translate']:
-            raise ValueError(f"Invalid mode: {mode}. Use 'proofread', 'translate', or 'proofread_translate'")
+        # Word and character limits (for custom personas)
+        self.max_words = None
+        self.max_chars = None
 
         # Get system prompt
-        if mode == 'proofread':
+        if mode == 'custom' and persona_id:
+            # Use custom persona prompt
+            self.system_prompt = config.get_persona_prompt(persona_id)
+            if not self.system_prompt:
+                raise ValueError(f"Persona not found: {persona_id}")
+
+            # Get limits from persona config if available
+            if persona_id in config.custom_personas:
+                persona_config = config.custom_personas[persona_id]
+                self.max_words = persona_config.get('max_words')
+                self.max_chars = persona_config.get('max_chars')
+        elif mode == 'proofread':
             self.system_prompt = config.format_prompt(mode)
-        else:
+        elif mode in ['translate', 'proofread_translate']:
             self.system_prompt = config.format_prompt(mode, source_lang or 'auto', target_lang)
+        else:
+            raise ValueError(f"Invalid mode: {mode}. Use 'proofread', 'translate', 'proofread_translate', or 'custom'")
 
         # Get defaults
         defaults = config.get_defaults()
         self.temperature = defaults.get('temperature', 0.3)
         self.max_retries = defaults.get('max_retries', 2)
 
+    def _enforce_limits(self, text: str) -> str:
+        """
+        Enforce word and character limits on the output text.
+
+        Args:
+            text: Text to limit
+
+        Returns:
+            Limited text
+        """
+        if not text:
+            return text
+
+        # Apply character limit first if set
+        if self.max_chars and len(text) > self.max_chars:
+            text = text[:self.max_chars].rsplit(' ', 1)[0] + '...'
+
+        # Apply word limit if set
+        if self.max_words:
+            words = text.split()
+            if len(words) > self.max_words:
+                text = ' '.join(words[:self.max_words]) + '...'
+
+        return text
+
     def process(self, text: str) -> Tuple[str, Optional[str]]:
         """
-        Process text (proofread and/or translate).
+        Process text (proofread, translate, or custom persona processing).
 
         Args:
             text: Text to process
@@ -224,12 +265,18 @@ class AITextProcessor:
         Returns:
             Tuple of (processed_text, error_message)
         """
-        return self.provider.process_text(
+        result, error = self.provider.process_text(
             text=text,
             system_prompt=self.system_prompt,
             temperature=self.temperature,
             max_retries=self.max_retries
         )
+
+        # Enforce limits for custom personas
+        if not error and (self.max_words or self.max_chars):
+            result = self._enforce_limits(result)
+
+        return (result, error)
 
 
 if __name__ == "__main__":

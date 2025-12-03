@@ -298,7 +298,8 @@ class ProcessingBridge:
                 return None
             selected_model_id = models[self.state.ai_model_index]['id']
 
-            # Determine mode
+            # Determine mode and persona
+            persona_id = None
             if self.state.ai_translate_only:
                 mode = "translate"
             else:
@@ -307,7 +308,8 @@ class ProcessingBridge:
                 if self.state.ai_persona_index >= len(personas):
                     mode = "proofread"
                 else:
-                    persona_id = personas[self.state.ai_persona_index]['id']
+                    persona = personas[self.state.ai_persona_index]
+                    persona_id = persona['id']
 
                     if persona_id == "proofread":
                         if self.state.ai_translate and self.state.target_language != "none":
@@ -315,11 +317,16 @@ class ProcessingBridge:
                         else:
                             mode = "proofread"
                     else:
-                        # Custom persona - treat as proofread
-                        if self.state.ai_translate and self.state.target_language != "none":
-                            mode = "proofread_translate"
+                        # Custom persona (like Q&A)
+                        if persona.get('builtin'):
+                            # Built-in custom persona
+                            if self.state.ai_translate and self.state.target_language != "none":
+                                mode = "proofread_translate"
+                            else:
+                                mode = "proofread"
                         else:
-                            mode = "proofread"
+                            # User-defined custom persona - use 'custom' mode
+                            mode = "custom"
 
             # Get languages
             source = None if self.state.source_language == "auto" else self.state.source_language
@@ -331,7 +338,8 @@ class ProcessingBridge:
                 model_id=selected_model_id,
                 mode=mode,
                 source_lang=source,
-                target_lang=target
+                target_lang=target,
+                persona_id=persona_id if mode == "custom" else None
             )
 
             return processor
@@ -405,11 +413,91 @@ class ProcessingBridge:
             setattr(self.state, state_attr, preview)
 
         if new_segment:
-            if tts_source and self.state.tts_enabled and self.state.tts_source == tts_source:
+            # Check if we're in Q&A mode
+            is_qa_mode = (self.ai_processor and
+                         hasattr(self.ai_processor, 'mode') and
+                         self.ai_processor.mode == 'custom' and
+                         hasattr(self.ai_processor, 'persona_id') and
+                         self.ai_processor.persona_id == 'qa')
+
+            # Handle TTS for AI output in Q&A mode
+            if is_qa_mode and tts_source == 'ai' and state_attr == 'ai_text':
+                # In Q&A mode, trigger TTS for complete AI response
+                if self.state.tts_enabled and self.state.tts_source == 'ai':
+                    self._trigger_qa_tts(new_segment)
+
+                # Clear AI output after response is complete (keep whisper for context)
+                # We'll do this after TTS is done speaking
+
+            elif tts_source and self.state.tts_enabled and self.state.tts_source == tts_source:
+                # Normal TTS mode (non-Q&A)
                 self.tts_session_text += new_segment + " "
 
             if autotype_mode and self.state.autotype_mode == autotype_mode and new_segment.strip():
                 self._autotype_text(new_segment)
+
+    def _trigger_qa_tts(self, text: str):
+        """Trigger TTS synthesis for Q&A response and set up playback."""
+        if not self.tts_controller or not text.strip():
+            return
+
+        try:
+            import time
+            # Generate unique filename for this Q&A response
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"qa_response_{timestamp}"
+
+            # Synthesize to file
+            output_path = self.tts_controller.synthesize_to_file(
+                text=text.strip(),
+                output_filename=filename,
+                file_format=self.state.tts_format,
+                async_mode=False  # Wait for completion
+            )
+
+            if output_path:
+                # Store the audio file path for playback
+                self.state.tts_audio_file = output_path
+                self.state.tts_status_message = "Ready to play"
+
+                # Auto-play the audio
+                self._play_tts_audio(output_path)
+        except Exception as e:
+            print(f"Q&A TTS error: {e}")
+            self.state.tts_status_message = f"TTS error: {str(e)[:30]}"
+
+    def _play_tts_audio(self, audio_path: str):
+        """Play TTS audio file in background thread and clear AI output when done."""
+        def play_audio():
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+
+                # Read audio file
+                data, samplerate = sf.read(audio_path)
+
+                # Update state
+                self.state.tts_is_playing = True
+                self.state.tts_status_message = "Playing..."
+
+                # Play audio (blocking in this thread)
+                sd.play(data, samplerate)
+                sd.wait()
+
+                # Clear AI output after playback in Q&A mode
+                self.state.ai_text = ""
+                self._ai_committed = ""
+
+                # Update state
+                self.state.tts_is_playing = False
+                self.state.tts_status_message = "Playback complete"
+            except Exception as e:
+                print(f"Audio playback error: {e}")
+                self.state.tts_status_message = f"Playback error: {str(e)[:30]}"
+                self.state.tts_is_playing = False
+
+        # Start playback in background thread
+        threading.Thread(target=play_audio, daemon=True).start()
 
     def manual_ai_trigger(self):
         """Manually trigger AI processing."""
@@ -419,6 +507,21 @@ class ProcessingBridge:
         self.manual_trigger_requested[0] = True
         if self.state.debug_enabled:
             print("[Bridge] Manual AI processing requested", flush=True)
+
+    def replay_qa_audio(self):
+        """Replay the last Q&A TTS audio."""
+        if self.state.tts_audio_file and not self.state.tts_is_playing:
+            self._play_tts_audio(self.state.tts_audio_file)
+
+    def stop_qa_audio(self):
+        """Stop Q&A TTS audio playback."""
+        try:
+            import sounddevice as sd
+            sd.stop()
+            self.state.tts_is_playing = False
+            self.state.tts_status_message = "Stopped"
+        except Exception as e:
+            print(f"Stop audio error: {e}")
 
     def refresh_mics(self):
         """Refresh the list of available microphones."""

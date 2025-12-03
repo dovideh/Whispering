@@ -48,6 +48,8 @@ class AppState:
     tts_voice_reference: Optional[str] = None
     tts_voice_display_name: str = "Default"  # Display name for voice
     tts_status_message: str = ""  # TTS status message
+    tts_audio_file: Optional[str] = None  # Current TTS audio file for playback
+    tts_is_playing: bool = False  # TTS audio playback state
 
     # === Autotype Settings ===
     autotype_mode: str = "Off"  # "Off", "Whisper", "Translation", "AI"
