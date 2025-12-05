@@ -121,19 +121,36 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
             ui.button(icon='help_outline', on_click=lambda: show_help_dialog('translate')).props('flat dense round size=sm')
 
         with ui.row().classes('items-center w-full gap-1'):
-            ui.label('Src:').classes('text-xs w-8')
+            ui.label('Source:').classes('text-xs w-14')
             src_select = ui.select(
                 options=["auto"] + core.sources,
                 value=state.source_language
             ).classes('w-20').props('dense')
             src_select.on_value_change(lambda e: setattr(state, 'source_language', e.value))
 
-            ui.label('Tgt:').classes('text-xs w-8')
+            ui.label('Target:').classes('text-xs w-14')
             tgt_select = ui.select(
                 options=["none"] + core.targets,
                 value=state.target_language
             ).classes('w-20').props('dense')
             tgt_select.on_value_change(lambda e: setattr(state, 'target_language', e.value))
+
+        # Translation provider hint
+        translation_hint = ui.label('').classes('text-xs text-gray-400 italic')
+
+        def update_translation_hint():
+            """Update the translation provider hint based on current settings."""
+            if state.target_language == "none":
+                translation_hint.text = ""
+            elif state.ai_enabled and (state.ai_translate or state.ai_translate_only):
+                translation_hint.text = f"→ AI translates to {state.target_language.upper()}"
+            elif state.target_language != "none":
+                translation_hint.text = f"→ Google Translate to {state.target_language.upper()}"
+            else:
+                translation_hint.text = ""
+
+        # Update hint when relevant values change
+        ui.timer(0.2, update_translation_hint)
 
         ui.separator().classes('my-1')
 

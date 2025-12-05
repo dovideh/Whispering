@@ -119,6 +119,19 @@ class ProcessingBridge:
             if self.ai_processor.mode in ("proofread_translate", "proofread", "custom"):
                 prres_queue = self.pr_queue
 
+        # Determine whether to use Google Translate
+        # If an AI processor exists (custom/proofread/Q&A), we should NOT bypass to Google
+        use_google_translate = self.ai_processor is None
+        if self.state.ai_enabled and self.ai_processor is None:
+            # Surface a visible status to help users notice AI init issues
+            self.state.status_message = "AI not initialized; check AI config/model selection"
+            print("[WARN] AI enabled but processor not created; falling back to Google Translate", flush=True)
+        elif self.ai_processor:
+            # Force AI path for any AI processor, even if translation flags are off
+            use_google_translate = False
+
+        # Explicitly keep Google Translate only when no AI processor exists
+
         # Start core processing thread
         threading.Thread(
             target=core.proc,
@@ -148,7 +161,8 @@ class ProcessingBridge:
                 'prres_queue': prres_queue,
                 'auto_stop_enabled': self.state.auto_stop_enabled,
                 'auto_stop_minutes': self.state.auto_stop_minutes,
-                'manual_trigger': self.manual_trigger_requested
+                'manual_trigger': self.manual_trigger_requested,
+                'use_google_translate': use_google_translate
             },
             daemon=True
         ).start()
@@ -367,11 +381,13 @@ class ProcessingBridge:
                 persona_id=persona_id if mode == "custom" else None
             )
 
+            print(f"[INFO] AI processor created: mode={processor.mode}, persona={persona_id}", flush=True)
             return processor
 
         except Exception as e:
             self.state.error_message = f"AI initialization error: {str(e)[:50]}"
-            print(f"Failed to initialize AI processor: {e}")
+            self.state.status_message = self.state.error_message
+            print(f"[ERROR] Failed to initialize AI processor: {e}", flush=True)
             return None
 
     def _finalize_tts_session(self):

@@ -107,7 +107,7 @@ def ai_translate(text, ai_processor):
         return (text, f"AI processing error: {str(e)}")
 
 
-def proc(index, model, vad, memory, patience, timeout, prompt, source, target, tsres_queue, tlres_queue, ready, device="cpu", error=None, level=None, para_detect=True, para_threshold_std=1.5, para_min_pause=0.8, para_max_chars=500, para_max_words=100, ai_processor=None, ai_process_interval=2, ai_process_words=None, ai_trigger_mode="time", silence_timeout=60, prres_queue=None, auto_stop_enabled=False, auto_stop_minutes=5, manual_trigger=None):
+def proc(index, model, vad, memory, patience, timeout, prompt, source, target, tsres_queue, tlres_queue, ready, device="cpu", error=None, level=None, para_detect=True, para_threshold_std=1.5, para_min_pause=0.8, para_max_chars=500, para_max_words=100, ai_processor=None, ai_process_interval=2, ai_process_words=None, ai_trigger_mode="time", silence_timeout=60, prres_queue=None, auto_stop_enabled=False, auto_stop_minutes=5, manual_trigger=None, use_google_translate=True):
     # Create paragraph detector if enabled
     para_detector = ParagraphDetector(
         threshold_std=para_threshold_std,
@@ -187,8 +187,8 @@ def proc(index, model, vad, memory, patience, timeout, prompt, source, target, t
                 ready[0] = False  # Signal stop
                 break
 
-            # Use AI processing if available
-            if ai_processor:
+            # Use AI processing if AI translate is enabled
+            if ai_processor and not use_google_translate:
                 # Accumulate done text
                 if done_src:
                     accumulated_done += done_src
