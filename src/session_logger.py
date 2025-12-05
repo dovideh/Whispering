@@ -31,6 +31,7 @@ class SessionLogger:
         self.current_temp_file: Optional[Path] = None
         self.session_start_time: Optional[datetime] = None
         self.current_file_size = 0
+        self.last_outputs: Optional[Dict[str, str]] = None
 
         # Ensure log directory exists
         self.log_dir.mkdir(exist_ok=True)
@@ -112,18 +113,21 @@ class SessionLogger:
         if not self.current_temp_file or not self.current_request_id:
             return
 
-        # Update session entry
-        session_entry = {
-            "request_id": self.current_request_id,
-            "session_start": self.session_start_time.isoformat() + "Z",
-            "session_end": None,
-            "duration_seconds": None,
-            "config": None,  # Don't repeat config in updates
-            "outputs": outputs,
-            "stop_reason": None
-        }
+        # Only write if outputs changed or this is the first update
+        if outputs != self.last_outputs:
+            # Update session entry
+            session_entry = {
+                "request_id": self.current_request_id,
+                "session_start": self.session_start_time.isoformat() + "Z",
+                "session_end": None,
+                "duration_seconds": None,
+                "config": None,  # Don't repeat config in updates
+                "outputs": outputs,
+                "stop_reason": None
+            }
 
-        self._write_to_temp_file(session_entry)
+            self._write_to_temp_file(session_entry)
+            self.last_outputs = outputs
 
     def finalize_session(self, stop_reason: str = "manual") -> Optional[Path]:
         """
@@ -168,6 +172,7 @@ class SessionLogger:
         self.current_temp_file = None
         self.session_start_time = None
         self.current_file_size = 0
+        self.last_outputs = None
 
         return final_file
 
