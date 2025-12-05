@@ -68,6 +68,9 @@ tts_output/
 # Log output files
 log_output/
 
+# Session logs
+logs/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

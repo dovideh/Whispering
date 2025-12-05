@@ -66,6 +66,48 @@ See AI_SETUP.md for details.""",
 **Format:** WAV (lossless) | OGG (compressed)
 
 **Setup:** See INSTALL_TTS.md"""
+
+    "logging": """**Save logs:** Save session data to structured log files
+
+**Features:**
+- JSONL format (readable & parsable)
+- Automatic crash recovery with user prompt
+- Organized by date: logs/YYYY/MM/DD/
+- Request ID format: 2YMMDDNNNN (e.g., 2501010001)
+- 5MB file size limit with auto-rollover
+- Saves all configuration and output data
+- Handles unexpected shutdowns gracefully
+
+**Log Content:**
+- Session start/end timestamps
+- Duration tracking
+- Complete configuration snapshot
+- All text outputs (Whisper, AI, Translation)
+- Stop reason (manual/auto/error/unexpected)
+- Request ID for session tracking
+
+**Recovery:**
+- Detects crashed sessions on startup
+- User choice: Recover or Discard
+- Temporary files use `.temp_` prefix
+- Recovery moves temp to permanent location
+
+**File Structure:**
+```
+logs/
+├── 2025/
+│   ├── 01/
+│   │   ├── 2501010001.jsonl
+│   │   ├── 2501010002.jsonl
+│   │   └── .temp_2501010003.jsonl  (crashed session)
+│   └── ...
+```
+
+**Settings:**
+- Toggle in sidebar: "Save logs" checkbox
+- Configurable max file size (default 5MB)
+- Settings persist across sessions
+"""
 }
 
 

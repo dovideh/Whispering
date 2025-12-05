@@ -340,6 +340,10 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
             ui.label('min').classes('text-xs')
 
+            # Log to file checkbox
+            log_cb = ui.checkbox('Save logs', value=state.log_enabled).props('dense')
+            log_cb.on_value_change(lambda e: setattr(state, 'log_enabled', e.value))
+
         # Status - compact
         status_label = ui.label('').classes('text-xs text-red-400 mt-1')
 

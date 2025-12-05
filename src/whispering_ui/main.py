@@ -19,6 +19,7 @@ from whispering_ui.bridge import ProcessingBridge
 from whispering_ui.components.sidebar import create_sidebar, sync_text_layout
 from whispering_ui.components.output import create_output_panels
 from debug import set_debug_enabled
+from session_logger import SessionLogger
 
 
 def main():
@@ -104,6 +105,62 @@ def main():
         except Exception as e:
             print(f"Failed to initialize TTS controller: {e}")
             state.tts_available = False
+
+    # === RECOVERY DIALOG ===
+    # Check for crashed sessions and offer recovery
+    def check_crashed_sessions():
+        """Check for crashed sessions and show recovery dialog."""
+        try:
+            from session_logger import SessionLogger
+            logger = SessionLogger()
+            temp_files = logger.scan_for_temp_files()
+            
+            if temp_files:
+                # Show recovery dialog for each crashed session
+                for temp_file, timestamp in temp_files:
+                    with ui.dialog() as dialog, ui.card().classes('w-96'):
+                        ui.label(f'Found incomplete session from {timestamp}').classes('text-lg font-bold mb-4')
+                        ui.label('Would you like to recover this session or discard it?').classes('mb-4')
+                        
+                        with ui.row().classes('justify-center gap-4 mt-4'):
+                            ui.button('Recover', on_click=lambda: recover_session(temp_file, logger, dialog)).props('color=primary')
+                            ui.button('Discard', on_click=lambda: discard_session(temp_file, logger, dialog)).props('color=negative'))
+                        
+                        ui.label('Note: Recovery will save the session to logs.').classes('text-xs text-gray-500 mt-2')
+                    
+                    dialog.open()
+        except Exception as e:
+            print(f"Error checking crashed sessions: {e}")
+
+    def recover_session(temp_file, logger, dialog):
+        """Recover a crashed session."""
+        try:
+            final_file = logger.recover_session(temp_file)
+            if final_file:
+                ui.notify('✓ Session recovered successfully', type='positive')
+                print(f"Recovered session: {final_file}")
+            else:
+                ui.notify('✗ Failed to recover session', type='negative')
+        except Exception as e:
+            ui.notify(f'✗ Recovery error: {e}', type='negative')
+            print(f"Recovery error: {e}")
+        finally:
+            dialog.close()
+
+    def discard_session(temp_file, logger, dialog):
+        """Discard a crashed session."""
+        try:
+            success = logger.discard_session(temp_file)
+            if success:
+                ui.notify('✓ Session discarded', type='positive')
+                print(f"Discarded session: {temp_file}")
+            else:
+                ui.notify('✗ Failed to discard session', type='negative')
+        except Exception as e:
+            ui.notify(f'✗ Discard error: {e}', type='negative')
+            print(f"Discard error: {e}")
+        finally:
+            dialog.close()
 
     # === UI SETUP ===
     ui.page_title('Whispering')
@@ -323,6 +380,10 @@ def main():
 
     # Register cleanup handler
     app.on_shutdown(save_settings_on_exit)
+
+    # === CHECK FOR CRASHED SESSIONS ===
+    # Check for crashed sessions before UI setup
+    check_crashed_sessions()
 
     # === RUN APPLICATION ===
     # Try native mode first, fall back to browser if backend unavailable

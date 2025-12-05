@@ -54,6 +54,7 @@ def create_output_panels(state: AppState, bridge=None):
 
     textareas = {}
     count_labels = {}
+    title_labels = {}
 
     with output_container:
         stack = ui.element('div').classes('output-stack flex flex-col w-full h-full flex-1')
@@ -62,7 +63,7 @@ def create_output_panels(state: AppState, bridge=None):
                 panel = ui.element('div').classes('output-panel').style('flex: 1 1 0; min-height: 0;')
                 with panel:
                     with ui.row().classes('panel-header w-full'):
-                        ui.label(config['title']).classes('font-bold')
+                        title_labels[config['key']] = ui.label(config['title']).classes('font-bold')
                         with ui.row().classes('items-center gap-2'):
                             count_labels[config['key']] = ui.label('0 chars, 0 words').classes('text-xs text-gray-500')
                             ui.button(
@@ -114,6 +115,14 @@ def create_output_panels(state: AppState, bridge=None):
 
                 chars, words = cfg['count_fn']()
                 count_labels[cfg['key']].text = f'{chars} chars, {words} words'
+
+                # Update AI panel title dynamically
+                if cfg['key'] == 'ai':
+                    task_name = state.get_current_ai_task_name()
+                    if task_name:
+                        title_labels[cfg['key']].text = f"AI Output - {task_name}"
+                    else:
+                        title_labels[cfg['key']].text = cfg['title']
 
                 # Update audio playback controls visibility for AI panel
                 if cfg['key'] == 'ai' and 'play_btn' in cfg and 'stop_btn' in cfg:

@@ -12,6 +12,7 @@ from nicegui import ui
 import core
 from cmque import DataDeque, PairDeque, Queue
 from whispering_ui.state import AppState
+from session_logger import SessionLogger
 
 
 class ProcessingBridge:
@@ -45,6 +46,12 @@ class ProcessingBridge:
         self.tts_session_text = ""
         self.tts_session_id = None
 
+        # Session logger
+        self.session_logger = SessionLogger(
+            log_dir="logs", 
+            max_file_size_mb=self.state.log_max_file_size_mb
+        )
+
         # Track last committed text for incremental updates
         self._whisper_committed = ""
         self._translation_committed = ""
@@ -62,18 +69,19 @@ class ProcessingBridge:
         if not self._validate_settings():
             return
 
-        # Reset state
+        # Reset state (but keep existing text for persistence)
         self.ready[0] = False
         self.error[0] = None
         self.state.error_message = None
         self.state.status_message = "Starting..."
         self.level[0] = 0
-        self.state.whisper_text = ""
-        self.state.translation_text = ""
-        self.state.ai_text = ""
-        self._whisper_committed = ""
-        self._translation_committed = ""
-        self._ai_committed = ""
+        # Don't clear text buffers - keep outputs persistent between start/stop
+        # self.state.whisper_text = ""
+        # self.state.translation_text = ""
+        # self.state.ai_text = ""
+        # self._whisper_committed = ""
+        # self._translation_committed = ""
+        # self._ai_committed = ""
         self._stream_live = False
         self._stop_requested = False
         self._auto_stopped = False
@@ -145,6 +153,12 @@ class ProcessingBridge:
             daemon=True
         ).start()
 
+        # Start logging if enabled
+        if self.state.log_enabled:
+            config = self._get_config_for_logging()
+            request_id = self.session_logger.start_session(config)
+            self.state.current_log_request_id = request_id
+
         # Start polling
         self._start_polling()
 
@@ -176,6 +190,12 @@ class ProcessingBridge:
 
         # Finalize TTS session
         self._finalize_tts_session()
+
+        # Finalize logging if enabled
+        if self.state.log_enabled and self.state.current_log_request_id:
+            stop_reason = "auto" if self._auto_stopped else "manual"
+            self.session_logger.finalize_session(stop_reason)
+            self.state.current_log_request_id = None
 
         # Update state
         self.state.is_recording = False
@@ -219,6 +239,15 @@ class ProcessingBridge:
             self._auto_stopped = True
             minutes = self.state.auto_stop_minutes
             self.state.status_message = f"Auto-stop after {minutes}m of silence"
+
+        # Update logging periodically
+        if self.state.log_enabled and self.state.current_log_request_id:
+            outputs = {
+                "whisper_text": self.state.whisper_text,
+                "ai_text": self.state.ai_text,
+                "translation_text": self.state.translation_text
+            }
+            self.session_logger.update_session(outputs)
 
         # Poll whisper queue (Queue wraps PairDeque)
         while self.ts_queue:
@@ -317,16 +346,9 @@ class ProcessingBridge:
                         else:
                             mode = "proofread"
                     else:
-                        # Custom persona (like Q&A)
-                        if persona.get('builtin'):
-                            # Built-in custom persona
-                            if self.state.ai_translate and self.state.target_language != "none":
-                                mode = "proofread_translate"
-                            else:
-                                mode = "proofread"
-                        else:
-                            # User-defined custom persona - use 'custom' mode
-                            mode = "custom"
+                        # Custom persona (like Q&A) - always use 'custom' mode
+                        # Translation will be handled separately if enabled
+                        mode = "custom"
 
             # Get languages
             source = None if self.state.source_language == "auto" else self.state.source_language
@@ -526,3 +548,37 @@ class ProcessingBridge:
     def refresh_mics(self):
         """Refresh the list of available microphones."""
         self.state.mic_list = core.get_mic_names()
+
+    def _get_config_for_logging(self) -> dict:
+        """Get current configuration for logging purposes."""
+        config = {
+            "model": self.state.model,
+            "vad_enabled": self.state.vad_enabled,
+            "para_detect_enabled": self.state.para_detect_enabled,
+            "device": self.state.device,
+            "memory": self.state.memory,
+            "patience": self.state.patience,
+            "timeout": self.state.timeout,
+            "source_language": self.state.source_language,
+            "target_language": self.state.target_language,
+            "ai_enabled": self.state.ai_enabled,
+            "ai_translate": self.state.ai_translate,
+            "ai_translate_only": self.state.ai_translate_only,
+            "ai_manual_mode": self.state.ai_manual_mode,
+            "ai_trigger_mode": self.state.ai_trigger_mode,
+            "ai_process_interval": self.state.ai_process_interval,
+            "ai_process_words": self.state.ai_process_words,
+            "tts_enabled": self.state.tts_enabled,
+            "tts_source": self.state.tts_source,
+            "tts_save_file": self.state.tts_save_file,
+            "tts_format": self.state.tts_format,
+            "autotype_mode": self.state.autotype_mode,
+            "auto_stop_enabled": self.state.auto_stop_enabled,
+            "auto_stop_minutes": self.state.auto_stop_minutes
+        }
+
+        # Add AI persona name if available
+        if self.state.ai_enabled:
+            config["ai_persona"] = self.state.get_current_ai_task_name()
+
+        return config

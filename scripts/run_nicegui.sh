@@ -4,23 +4,23 @@
 # Get the project directory (parent of scripts directory)
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Activate virtual environment if it exists
+if [ -d "$PROJECT_DIR/.venv" ]; then
+    source "$PROJECT_DIR/.venv/bin/activate"
+fi
+
 # Check if NiceGUI is installed
 if ! python3 -c "import nicegui" 2>/dev/null; then
     echo "Error: NiceGUI is not installed."
     echo "Please install dependencies:"
-    echo "  pip install nicegui pyperclip"
+    echo "  $PROJECT_DIR/.venv/bin/python3 -m pip install nicegui pyperclip"
     exit 1
 fi
 
 # Check if pyperclip is installed
 if ! python3 -c "import pyperclip" 2>/dev/null; then
     echo "Warning: pyperclip is not installed. Copy/Cut features may not work."
-    echo "Install with: pip install pyperclip"
-fi
-
-# Activate virtual environment if it exists
-if [ -d "$PROJECT_DIR/.venv" ]; then
-    source "$PROJECT_DIR/.venv/bin/activate"
+    echo "Install with: $PROJECT_DIR/.venv/bin/python3 -m pip install pyperclip"
 fi
 
 # Prefer PulseAudio/PipeWire over ALSA for audio

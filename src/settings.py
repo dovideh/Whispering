@@ -51,7 +51,9 @@ class Settings:
             "text_visible": True,  # Text windows visible by default
             "debug_enabled": False,
             "auto_stop_enabled": False,  # Auto-stop disabled by default
-            "auto_stop_minutes": 5  # Auto-stop after N minutes of inactivity
+            "auto_stop_minutes": 5,  # Auto-stop after N minutes of inactivity
+            "log_enabled": False,  # Logging disabled by default
+            "log_max_file_size_mb": 5,  # Max log file size in MB
         }
         self.settings = self.load()
 

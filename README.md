@@ -169,6 +169,50 @@ The auto-type feature allows you to dictate directly into other applications.
 - Linux Wayland: `sudo apt install wtype wl-clipboard`
 - Windows/macOS: `pip install pyautogui`
 
+## Session Logging (New)
+
+Whispering now includes comprehensive session logging with automatic crash recovery:
+
+**Features:**
+- **JSONL Format** - Readable and parsable log files with complete session data
+- **Automatic Crash Recovery** - Detects and prompts to recover incomplete sessions on startup
+- **Organized Storage** - Logs organized by date: `logs/YYYY/MM/DD/`
+- **Request ID System** - Unique session identifiers in format `2YMMDDNNNN`
+- **5MB File Size Limit** - Automatic rollover when files reach size limit
+- **Complete Configuration Logging** - Saves all settings and outputs for each session
+- **Multiple Stop Reasons** - Tracks manual, auto-stop, error, and unexpected shutdowns
+
+**Settings:**
+- Toggle logging in sidebar: "Save logs" checkbox
+- Configurable max file size (default 5MB)
+- Settings persist across sessions
+- User choice on crash recovery: Recover or Discard
+
+**Log Content:**
+- Session start/end timestamps with duration
+- Complete configuration snapshot (model, AI settings, TTS, etc.)
+- All text outputs (Whisper, AI, Translation)
+- Stop reason classification
+- Request ID for session tracking
+
+**File Structure:**
+```
+logs/
+├── 2025/
+│   ├── 01/
+│   │   ├── 2501010001.jsonl      # Session 1
+│   │   ├── 2501010002.jsonl      # Session 2
+│   │   ├── 2501010003.jsonl      # Session 3
+│   │   └── .temp_2501010004.jsonl  # Crashed session (recovery pending)
+│   └── ...
+```
+
+**Recovery Process:**
+1. App startup scans for `.temp_*.jsonl` files
+2. Shows dialog: "Found incomplete session from [timestamp]. Recover or Discard?"
+3. User choice moves temp file to permanent location or deletes it
+4. Final log file contains complete session data with proper timestamps
+
 ## File Structure
 
 ```

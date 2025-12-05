@@ -74,6 +74,11 @@ class AppState:
     text_visible: bool = False  # Start in minimal mode
     debug_enabled: bool = False
 
+    # === Logging Settings ===
+    log_enabled: bool = False
+    log_max_file_size_mb: int = 5
+    current_log_request_id: Optional[str] = None
+
     # === Feature Availability ===
     ai_available: bool = False
     tts_available: bool = False
@@ -98,3 +103,23 @@ class AppState:
         char_count = len(text)
         word_count = len(text.split()) if text else 0
         return char_count, word_count
+
+    def get_current_ai_task_name(self) -> str:
+        """Get the current AI task name for display."""
+        if not self.ai_enabled or not self.ai_available:
+            return ""
+        
+        try:
+            from ai_config import load_ai_config
+            ai_config = load_ai_config()
+            if not ai_config:
+                return ""
+            
+            personas = ai_config.get_personas()
+            if self.ai_persona_index < len(personas):
+                persona = personas[self.ai_persona_index]
+                return persona.get('name', 'Unknown')
+        except Exception:
+            pass
+        
+        return ""
