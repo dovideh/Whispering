@@ -119,6 +119,12 @@ class ProcessingBridge:
             if self.ai_processor.mode in ("proofread_translate", "proofread", "custom"):
                 prres_queue = self.pr_queue
 
+        # Determine whether to use Google Translate
+        # Google Translate is used ONLY when AI translate options are OFF
+        use_google_translate = True
+        if self.state.ai_enabled and (self.state.ai_translate or self.state.ai_translate_only):
+            use_google_translate = False
+
         # Start core processing thread
         threading.Thread(
             target=core.proc,
@@ -148,7 +154,8 @@ class ProcessingBridge:
                 'prres_queue': prres_queue,
                 'auto_stop_enabled': self.state.auto_stop_enabled,
                 'auto_stop_minutes': self.state.auto_stop_minutes,
-                'manual_trigger': self.manual_trigger_requested
+                'manual_trigger': self.manual_trigger_requested,
+                'use_google_translate': use_google_translate
             },
             daemon=True
         ).start()
