@@ -65,7 +65,7 @@ See AI_SETUP.md for details.""",
 
 **Format:** WAV (lossless) | OGG (compressed)
 
-**Setup:** See INSTALL_TTS.md"""
+**Setup:** See INSTALL_TTS.md""",
 
     "logging": """**Save logs:** Save session data to structured log files
 

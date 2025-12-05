@@ -339,8 +339,8 @@ def proc(index, model, vad, memory, patience, timeout, prompt, source, target, t
                             last_process_time = time.time()  # Reset timer after processing
 
                             # Send the NEW processed chunk to the correct queue based on mode
-                            if ai_processor.mode == "proofread" and prres_queue is not None:
-                                debug_print(f"[DEBUG] Sending proofread result to PR_QUEUE", flush=True)
+                            if ai_processor.mode in ("proofread", "custom") and prres_queue is not None:
+                                debug_print(f"[DEBUG] Sending {ai_processor.mode} result to PR_QUEUE", flush=True)
                                 prres_queue.put((processed + separator, ""))
                             else:
                                 debug_print(f"[DEBUG] Sending result to TL_QUEUE", flush=True)

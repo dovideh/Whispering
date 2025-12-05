@@ -116,7 +116,7 @@ class ProcessingBridge:
         # Determine which queues to use
         prres_queue = None
         if self.ai_processor:
-            if self.ai_processor.mode in ("proofread_translate", "proofread"):
+            if self.ai_processor.mode in ("proofread_translate", "proofread", "custom"):
                 prres_queue = self.pr_queue
 
         # Start core processing thread

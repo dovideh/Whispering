@@ -124,7 +124,7 @@ def main():
                         
                         with ui.row().classes('justify-center gap-4 mt-4'):
                             ui.button('Recover', on_click=lambda: recover_session(temp_file, logger, dialog)).props('color=primary')
-                            ui.button('Discard', on_click=lambda: discard_session(temp_file, logger, dialog)).props('color=negative'))
+                            ui.button('Discard', on_click=lambda: discard_session(temp_file, logger, dialog)).props('color=negative')
                         
                         ui.label('Note: Recovery will save the session to logs.').classes('text-xs text-gray-500 mt-2')
                     
