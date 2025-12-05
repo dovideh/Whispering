@@ -197,6 +197,9 @@ class ProcessingBridge:
             self.session_logger.finalize_session(stop_reason)
             self.state.current_log_request_id = None
 
+        # Write outputs to log and clear text windows on stop/auto-stop
+        self._flush_and_clear_outputs()
+
         # Update state
         self.state.is_recording = False
         if not self._auto_stopped:
@@ -582,3 +585,30 @@ class ProcessingBridge:
             config["ai_persona"] = self.state.get_current_ai_task_name()
 
         return config
+
+    def _flush_and_clear_outputs(self):
+        """Write current outputs to log and clear the three text windows."""
+        # If logging is enabled, ensure current outputs are saved
+        if self.state.log_enabled:
+            outputs = {
+                "whisper_text": self.state.whisper_text,
+                "ai_text": self.state.ai_text,
+                "translation_text": self.state.translation_text
+            }
+            # If there's an active session, update it before finalizing
+            if self.state.current_log_request_id:
+                self.session_logger.update_session(outputs)
+            else:
+                # If no active session, start a temporary one just to save these outputs
+                config = self._get_config_for_logging()
+                temp_request_id = self.session_logger.start_session(config)
+                self.session_logger.update_session(outputs)
+                self.session_logger.finalize_session("manual")
+        # Clear the three output buffers
+        self.state.whisper_text = ""
+        self.state.ai_text = ""
+        self.state.translation_text = ""
+        # Reset committed trackers
+        self._whisper_committed = ""
+        self._ai_committed = ""
+        self._translation_committed = ""

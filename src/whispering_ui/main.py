@@ -406,7 +406,7 @@ def main():
             title='Whispering',
             native=use_native,
             port=8000,
-            window_size=(400 if not state.text_visible else 1200, 800),
+            window_size=(400 if not state.text_visible else 1200, 1000),
             reload=False,
             show=not use_native  # Only auto-open browser in browser mode
         )

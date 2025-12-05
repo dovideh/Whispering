@@ -44,6 +44,36 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
             ui.button(icon='refresh', on_click=refresh_mics).props('flat dense round size=sm')
 
+        # === CONTROL SECTION (MOVED UP) ===
+        control_btn = ui.button(
+            'Start',
+            on_click=lambda: _toggle_recording(state, bridge, control_btn, level_progress, status_label)
+        ).classes('w-full').props('color=primary')
+
+        # Audio level - compact
+        with ui.row().classes('items-center w-full gap-1'):
+            ui.label('Level:').classes('text-xs w-12')
+            level_progress = ui.linear_progress(value=0, show_value=False).classes('flex-grow')
+
+        # Auto-stop - compact
+        with ui.row().classes('items-center w-full gap-1'):
+            autostop_cb = ui.checkbox('Auto-stop', value=state.auto_stop_enabled).props('dense')
+            autostop_cb.on_value_change(lambda e: setattr(state, 'auto_stop_enabled', e.value))
+
+            autostop_num = ui.number(value=state.auto_stop_minutes, min=1, max=60, step=1).classes('w-14').props('dense')
+            autostop_num.on_value_change(lambda e: setattr(state, 'auto_stop_minutes', int(e.value or 5)))
+
+            ui.label('min').classes('text-xs')
+
+            # Log to file checkbox
+            log_cb = ui.checkbox('Save logs', value=state.log_enabled).props('dense')
+            log_cb.on_value_change(lambda e: setattr(state, 'log_enabled', e.value))
+
+        # Status - compact
+        status_label = ui.label('').classes('text-xs text-red-400 mt-1')
+
+        ui.separator().classes('my-1')
+
         # === TOGGLE TEXT BUTTON ===
         toggle_btn = ui.button(
             'Show Text ▶' if not state.text_visible else 'Hide Text ◀',
@@ -316,36 +346,6 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
         _set_section_visual_state(tts_section, state.tts_enabled and state.tts_available)
         _set_controls_enabled(tts_controls, state.tts_enabled and state.tts_available)
-
-        ui.separator().classes('my-1')
-
-        # === CONTROL SECTION ===
-        control_btn = ui.button(
-            'Start',
-            on_click=lambda: _toggle_recording(state, bridge, control_btn, level_progress, status_label)
-        ).classes('w-full').props('color=primary')
-
-        # Audio level - compact
-        with ui.row().classes('items-center w-full gap-1'):
-            ui.label('Level:').classes('text-xs w-12')
-            level_progress = ui.linear_progress(value=0, show_value=False).classes('flex-grow')
-
-        # Auto-stop - compact
-        with ui.row().classes('items-center w-full gap-1'):
-            autostop_cb = ui.checkbox('Auto-stop', value=state.auto_stop_enabled).props('dense')
-            autostop_cb.on_value_change(lambda e: setattr(state, 'auto_stop_enabled', e.value))
-
-            autostop_num = ui.number(value=state.auto_stop_minutes, min=1, max=60, step=1).classes('w-14').props('dense')
-            autostop_num.on_value_change(lambda e: setattr(state, 'auto_stop_minutes', int(e.value or 5)))
-
-            ui.label('min').classes('text-xs')
-
-            # Log to file checkbox
-            log_cb = ui.checkbox('Save logs', value=state.log_enabled).props('dense')
-            log_cb.on_value_change(lambda e: setattr(state, 'log_enabled', e.value))
-
-        # Status - compact
-        status_label = ui.label('').classes('text-xs text-red-400 mt-1')
 
         # Update UI periodically - faster for audio level
         def update_ui():
