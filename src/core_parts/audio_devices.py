@@ -64,6 +64,9 @@ def get_monitor_names():
 
     Monitor devices capture what's being played through speakers/headphones.
     On PulseAudio/PipeWire, these typically have 'Monitor' in the name.
+
+    Unlike regular mics, we accept monitors from any host API except JACK,
+    since PulseAudio/PipeWire monitors may not appear under ALSA.
     """
     devices_list = sd.query_devices()
 
@@ -72,10 +75,12 @@ def get_monitor_names():
     for i, d in enumerate(devices_list):
         if d['max_input_channels'] > 0:
             name_lower = d['name'].lower()
-            # Only ALSA devices (JACK crashes)
             api_name = sd.query_hostapis(d['hostapi'])['name'].lower()
-            if 'alsa' not in api_name:
+
+            # Skip JACK (causes crashes)
+            if 'jack' in api_name:
                 continue
+
             # Look for monitor devices (PulseAudio/PipeWire convention)
             if 'monitor' in name_lower:
                 monitors.append((i, d['name']))
