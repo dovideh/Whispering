@@ -59,14 +59,51 @@ def get_mic_names():
     return mics
 
 
+def _extract_friendly_name(device_name):
+    """Extract a friendly display name from a PulseAudio/PipeWire device name.
+
+    Examples:
+        'alsa_output.usb-MOTU_828_828E0238SD-00.HiFi__Headphones1__sink.monitor'
+        -> '828 Headphones (1)'
+
+        'Monitor of 828 Main Out A (1-2)'
+        -> '828 Main Out A (1-2)'
+    """
+    name = device_name
+
+    # If it starts with "Monitor of ", extract the rest
+    if name.lower().startswith('monitor of '):
+        return name[11:]  # Remove "Monitor of "
+
+    # Try to extract from PulseAudio-style names
+    # Pattern: ...HiFi__DeviceName__sink.monitor
+    import re
+
+    # Look for pattern like __SomeName__sink
+    match = re.search(r'__([^_]+\d*)__sink', name)
+    if match:
+        friendly = match.group(1)
+        # Convert camelCase/numbers to spaced format
+        # Headphones1 -> Headphones (1)
+        friendly = re.sub(r'([a-zA-Z])(\d+)$', r'\1 (\2)', friendly)
+        # Add device prefix if we can find it (like "828")
+        prefix_match = re.search(r'usb-([^_]+)_(\d+)', name)
+        if prefix_match:
+            model = prefix_match.group(2)
+            return f"{model} {friendly}"
+        return friendly
+
+    # Fallback: just return the original but truncated if too long
+    if len(name) > 50:
+        return name[:47] + "..."
+    return name
+
+
 def get_monitor_names():
-    """Get list of speaker monitor device names (for capturing system audio output).
+    """Get list of speaker/output monitor device names (for capturing system audio output).
 
     Monitor devices capture what's being played through speakers/headphones.
-    On PulseAudio/PipeWire, these typically have 'Monitor' in the name.
-
-    Unlike regular mics, we accept monitors from any host API except JACK,
-    since PulseAudio/PipeWire monitors may not appear under ALSA.
+    Returns tuples of (device_index, friendly_display_name, original_name).
     """
     devices_list = sd.query_devices()
 
@@ -74,7 +111,8 @@ def get_monitor_names():
 
     for i, d in enumerate(devices_list):
         if d['max_input_channels'] > 0:
-            name_lower = d['name'].lower()
+            name = d['name']
+            name_lower = name.lower()
             api_name = sd.query_hostapis(d['hostapi'])['name'].lower()
 
             # Skip JACK (causes crashes)
@@ -83,7 +121,8 @@ def get_monitor_names():
 
             # Look for monitor devices (PulseAudio/PipeWire convention)
             if 'monitor' in name_lower:
-                monitors.append((i, d['name']))
+                friendly_name = _extract_friendly_name(name)
+                monitors.append((i, friendly_name))
 
     return monitors
 
