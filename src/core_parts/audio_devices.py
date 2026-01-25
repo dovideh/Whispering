@@ -99,13 +99,31 @@ def _extract_friendly_name(device_name):
     return name
 
 
-def get_monitor_names():
+def debug_list_all_devices():
+    """Print all audio devices for debugging purposes."""
+    devices_list = sd.query_devices()
+    hostapis = sd.query_hostapis()
+
+    print("\n=== All Audio Devices ===")
+    for i, d in enumerate(devices_list):
+        api_name = hostapis[d['hostapi']]['name']
+        in_ch = d['max_input_channels']
+        out_ch = d['max_output_channels']
+        print(f"  [{i}] {d['name']}")
+        print(f"      API: {api_name}, In: {in_ch}, Out: {out_ch}")
+    print("========================\n")
+
+
+def get_monitor_names(debug=False):
     """Get list of speaker/output monitor device names (for capturing system audio output).
 
     Monitor devices capture what's being played through speakers/headphones.
-    Returns tuples of (device_index, friendly_display_name, original_name).
+    Returns tuples of (device_index, friendly_display_name).
     """
     devices_list = sd.query_devices()
+
+    if debug:
+        debug_list_all_devices()
 
     monitors = []
 
@@ -123,6 +141,11 @@ def get_monitor_names():
             if 'monitor' in name_lower:
                 friendly_name = _extract_friendly_name(name)
                 monitors.append((i, friendly_name))
+                if debug:
+                    print(f"  Found monitor: [{i}] {name} -> '{friendly_name}'")
+
+    if debug and not monitors:
+        print("  No monitor devices found!")
 
     return monitors
 

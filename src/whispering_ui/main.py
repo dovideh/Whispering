@@ -64,7 +64,8 @@ def main():
         state.mic_list = []
 
     try:
-        state.monitor_list = core.get_monitor_names()
+        # Use debug=True to see all devices on startup
+        state.monitor_list = core.get_monitor_names(debug=True)
     except Exception as e:
         print(f"Error getting monitor list: {e}")
         state.monitor_list = []
@@ -444,4 +445,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n👋 Shutting down...")
+    except SystemExit:
+        pass
