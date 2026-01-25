@@ -89,17 +89,23 @@ class ProcessingBridge:
         self.ai_processor = self._create_ai_processor()
 
         # Get device index (mic or monitor based on mode)
-        if self.state.monitor_enabled and self.state.monitor_list:
-            # Use monitor device for speaker capture
-            if self.state.monitor_index == 0:
-                # First monitor in list
-                mic_index = self.state.monitor_list[0][0]
+        mic_index = None
+        try:
+            if self.state.monitor_enabled and self.state.monitor_list:
+                # Use monitor device for speaker capture
+                if self.state.monitor_index == 0 or self.state.monitor_index > len(self.state.monitor_list):
+                    # First monitor in list (or fallback if index out of range)
+                    mic_index = self.state.monitor_list[0][0]
+                else:
+                    mic_index = self.state.monitor_list[self.state.monitor_index - 1][0]
+            elif self.state.mic_index == 0 or not self.state.mic_list:
+                mic_index = core.get_default_device_index()
             else:
-                mic_index = self.state.monitor_list[self.state.monitor_index - 1][0]
-        elif self.state.mic_index == 0:
+                idx = min(self.state.mic_index - 1, len(self.state.mic_list) - 1)
+                mic_index = self.state.mic_list[idx][0]
+        except (IndexError, TypeError) as e:
+            print(f"[WARN] Device selection error: {e}, falling back to default")
             mic_index = core.get_default_device_index()
-        else:
-            mic_index = self.state.mic_list[self.state.mic_index - 1][0]
 
         # Get channel selection constant
         channel_select = core.CHANNEL_MIX

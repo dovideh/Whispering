@@ -57,8 +57,17 @@ def main():
     state.auto_stop_minutes = settings.get("auto_stop_minutes", 5)
 
     # Initialize microphone and monitor lists
-    state.mic_list = core.get_mic_names()
-    state.monitor_list = core.get_monitor_names()
+    try:
+        state.mic_list = core.get_mic_names()
+    except Exception as e:
+        print(f"Error getting mic list: {e}")
+        state.mic_list = []
+
+    try:
+        state.monitor_list = core.get_monitor_names()
+    except Exception as e:
+        print(f"Error getting monitor list: {e}")
+        state.monitor_list = []
 
     # Check AI availability
     try:
