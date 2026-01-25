@@ -39,37 +39,12 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
             def refresh_mics():
                 bridge.refresh_mics()
-                bridge.refresh_monitors()
                 mic_select.options = ["(system default)"] + [name for idx, name in state.mic_list]
                 mic_select.update()
-                monitor_select.options = ["(first available)"] + [name for idx, name in state.monitor_list]
-                monitor_select.update()
 
             ui.button(icon='refresh', on_click=refresh_mics).props('flat dense round size=sm')
 
-        # === SPEAKER CAPTURE (MONITOR) SECTION ===
-        with ui.row().classes('items-center w-full gap-1'):
-            monitor_cb = ui.checkbox('Speaker', value=state.monitor_enabled).props('dense')
-            monitor_cb.on_value_change(lambda e: setattr(state, 'monitor_enabled', e.value))
-
-            monitor_display = ["(first available)"] + [name for idx, name in state.monitor_list]
-            monitor_select = ui.select(
-                options=monitor_display,
-                value=monitor_display[0] if monitor_display else None
-            ).classes('flex-grow').props('dense')
-            monitor_select.on_value_change(lambda e: setattr(state, 'monitor_index',
-                                           monitor_select.options.index(e.value) if e.value in monitor_select.options else 0))
-
-        # Channel selection
-        with ui.row().classes('items-center w-full gap-1'):
-            ui.label('Channel:').classes('text-xs w-14')
-            channel_select = ui.select(
-                options=["mix", "left", "right"],
-                value=state.channel_select
-            ).classes('flex-grow').props('dense')
-            channel_select.on_value_change(lambda e: setattr(state, 'channel_select', e.value))
-
-        # === CONTROL SECTION (MOVED UP) ===
+        # === CONTROL SECTION ===
         control_btn = ui.button(
             'Start',
             on_click=lambda: _toggle_recording(state, bridge, control_btn, level_progress, status_label)

@@ -3,10 +3,8 @@
 from core_parts.paragraph_detector import ParagraphDetector
 from core_parts.audio_devices import (
     TARGET_SAMPLE_RATE, SAMPLE_WIDTH, CHUNK_DURATION,
-    CHANNEL_MIX, CHANNEL_LEFT, CHANNEL_RIGHT,
     get_preferred_hostapi_index, get_mic_names, get_default_device_index,
-    get_mic_index, get_device_info, audio_to_wav_bytes, resample_to_mono_16k,
-    get_monitor_names, get_all_input_devices
+    get_mic_index, get_device_info, audio_to_wav_bytes, resample_to_mono_16k
 )
 from core_parts.processing import (
     translate, parse_ai_proofread_translate, ai_translate, proc

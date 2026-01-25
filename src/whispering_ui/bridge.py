@@ -88,17 +88,10 @@ class ProcessingBridge:
         # Initialize AI processor if enabled
         self.ai_processor = self._create_ai_processor()
 
-        # Get device index (mic or monitor based on mode)
+        # Get mic device index
         mic_index = None
         try:
-            if self.state.monitor_enabled and self.state.monitor_list:
-                # Use monitor device for speaker capture
-                if self.state.monitor_index == 0 or self.state.monitor_index > len(self.state.monitor_list):
-                    # First monitor in list (or fallback if index out of range)
-                    mic_index = self.state.monitor_list[0][0]
-                else:
-                    mic_index = self.state.monitor_list[self.state.monitor_index - 1][0]
-            elif self.state.mic_index == 0 or not self.state.mic_list:
+            if self.state.mic_index == 0 or not self.state.mic_list:
                 mic_index = core.get_default_device_index()
             else:
                 idx = min(self.state.mic_index - 1, len(self.state.mic_list) - 1)
@@ -106,13 +99,6 @@ class ProcessingBridge:
         except (IndexError, TypeError) as e:
             print(f"[WARN] Device selection error: {e}, falling back to default")
             mic_index = core.get_default_device_index()
-
-        # Get channel selection constant
-        channel_select = core.CHANNEL_MIX
-        if self.state.channel_select == "left":
-            channel_select = core.CHANNEL_LEFT
-        elif self.state.channel_select == "right":
-            channel_select = core.CHANNEL_RIGHT
 
         # Get translation target (None if "none")
         target = None if self.state.target_language == "none" else self.state.target_language
@@ -177,8 +163,7 @@ class ProcessingBridge:
                 'auto_stop_enabled': self.state.auto_stop_enabled,
                 'auto_stop_minutes': self.state.auto_stop_minutes,
                 'manual_trigger': self.manual_trigger_requested,
-                'use_google_translate': use_google_translate,
-                'channel_select': channel_select
+                'use_google_translate': use_google_translate
             },
             daemon=True
         ).start()
@@ -583,10 +568,6 @@ class ProcessingBridge:
     def refresh_mics(self):
         """Refresh the list of available microphones."""
         self.state.mic_list = core.get_mic_names()
-
-    def refresh_monitors(self):
-        """Refresh the list of available monitor (speaker capture) devices."""
-        self.state.monitor_list = core.get_monitor_names()
 
     def _get_config_for_logging(self) -> dict:
         """Get current configuration for logging purposes."""
