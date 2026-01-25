@@ -16,6 +16,12 @@ class AppState:
     mic_index: int = 0
     mic_list: List[Tuple[int, str]] = field(default_factory=list)
 
+    # === Monitor (Speaker Capture) Settings ===
+    monitor_enabled: bool = False  # Whether to capture speaker output instead of mic
+    monitor_index: int = 0
+    monitor_list: List[Tuple[int, str]] = field(default_factory=list)
+    channel_select: str = "mix"  # "mix", "left", or "right"
+
     # === Model Settings ===
     model: str = "large-v3"
     vad_enabled: bool = True

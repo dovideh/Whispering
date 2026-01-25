@@ -56,8 +56,9 @@ def main():
     state.auto_stop_enabled = settings.get("auto_stop_enabled", False)
     state.auto_stop_minutes = settings.get("auto_stop_minutes", 5)
 
-    # Initialize microphone list
+    # Initialize microphone and monitor lists
     state.mic_list = core.get_mic_names()
+    state.monitor_list = core.get_monitor_names()
 
     # Check AI availability
     try:
@@ -133,12 +134,24 @@ def main():
             print(f"Error checking crashed sessions: {e}")
 
     def recover_session(temp_file, logger, dialog):
-        """Recover a crashed session."""
+        """Recover a crashed session and load text into UI."""
         try:
+            # First, load the outputs from the temp file before renaming
+            outputs = logger.load_session_outputs(temp_file)
+
+            # Now recover (rename) the session
             final_file = logger.recover_session(temp_file)
             if final_file:
-                ui.notify('✓ Session recovered successfully', type='positive')
-                print(f"Recovered session: {final_file}")
+                # Load recovered text into UI state
+                if outputs:
+                    state.whisper_text = outputs.get("whisper_text", "")
+                    state.ai_text = outputs.get("ai_text", "")
+                    state.translation_text = outputs.get("translation_text", "")
+                    ui.notify('✓ Session recovered and text restored', type='positive')
+                    print(f"Recovered session with text: {final_file}")
+                else:
+                    ui.notify('✓ Session recovered (no text content)', type='positive')
+                    print(f"Recovered session (empty): {final_file}")
             else:
                 ui.notify('✗ Failed to recover session', type='negative')
         except Exception as e:

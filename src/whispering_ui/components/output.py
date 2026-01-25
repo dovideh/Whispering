@@ -141,30 +141,46 @@ def create_output_panels(state: AppState, bridge=None):
 
 
 def _copy_text(text: str, label: str):
-    """Copy text to clipboard."""
-    if not text.strip():
+    """Copy text to clipboard (thread-safe)."""
+    # Capture the text value immediately to avoid race conditions
+    text_to_copy = str(text) if text else ""
+
+    if not text_to_copy.strip():
         ui.notify(f'No {label} text to copy', type='warning')
         return
 
     try:
         # Use JavaScript clipboard API via ui.run_javascript
         import json
-        escaped_text = json.dumps(text)
-        ui.run_javascript(f'navigator.clipboard.writeText({escaped_text})')
+        # Escape the text safely for JavaScript
+        escaped_text = json.dumps(text_to_copy)
+        # Use async clipboard API with proper error handling
+        js_code = f'''
+        (async () => {{
+            try {{
+                await navigator.clipboard.writeText({escaped_text});
+            }} catch (err) {{
+                console.error('Clipboard write failed:', err);
+            }}
+        }})();
+        '''
+        ui.run_javascript(js_code)
         ui.notify(f'✓ Copied {label} text to clipboard', type='positive')
     except Exception as e:
-        ui.notify(f'Clipboard error: {e}', type='negative')
+        # Log error but don't crash
+        print(f"Clipboard error: {e}")
+        ui.notify(f'Clipboard error - try again', type='warning')
 
 
 def _cut_text(state: AppState, text_type: str, textarea):
-    """Cut text (copy and clear)."""
-    # Get the text
+    """Cut text (copy and clear) - thread-safe."""
+    # Capture the text value immediately to avoid race conditions
     if text_type == 'whisper':
-        text = state.whisper_text
+        text = str(state.whisper_text) if state.whisper_text else ""
     elif text_type == 'ai':
-        text = state.ai_text
+        text = str(state.ai_text) if state.ai_text else ""
     elif text_type == 'translation':
-        text = state.translation_text
+        text = str(state.translation_text) if state.translation_text else ""
     else:
         return
 
@@ -173,12 +189,21 @@ def _cut_text(state: AppState, text_type: str, textarea):
         return
 
     try:
-        # Copy to clipboard
+        # Copy to clipboard with async API
         import json
         escaped_text = json.dumps(text)
-        ui.run_javascript(f'navigator.clipboard.writeText({escaped_text})')
+        js_code = f'''
+        (async () => {{
+            try {{
+                await navigator.clipboard.writeText({escaped_text});
+            }} catch (err) {{
+                console.error('Clipboard write failed:', err);
+            }}
+        }})();
+        '''
+        ui.run_javascript(js_code)
 
-        # Clear the text
+        # Clear the text in state
         if text_type == 'whisper':
             state.whisper_text = ""
         elif text_type == 'ai':
@@ -186,9 +211,14 @@ def _cut_text(state: AppState, text_type: str, textarea):
         elif text_type == 'translation':
             state.translation_text = ""
 
-        # Update textarea
-        textarea.value = ""
+        # Update textarea (wrap in try to prevent crash if textarea is being updated)
+        try:
+            textarea.value = ""
+        except Exception:
+            pass  # Ignore if textarea is busy
 
         ui.notify(f'✓ Cut text to clipboard', type='positive')
     except Exception as e:
-        ui.notify(f'Clipboard error: {e}', type='negative')
+        # Log error but don't crash
+        print(f"Cut error: {e}")
+        ui.notify(f'Cut error - try again', type='warning')

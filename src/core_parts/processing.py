@@ -20,6 +20,7 @@ except ImportError:
 from .paragraph_detector import ParagraphDetector
 from .audio_devices import (
     TARGET_SAMPLE_RATE, SAMPLE_WIDTH, CHUNK_DURATION,
+    CHANNEL_MIX, CHANNEL_LEFT, CHANNEL_RIGHT,
     get_default_device_index, get_device_info, audio_to_wav_bytes, resample_to_mono_16k
 )
 
@@ -107,7 +108,7 @@ def ai_translate(text, ai_processor):
         return (text, f"AI processing error: {str(e)}")
 
 
-def proc(index, model, vad, memory, patience, timeout, prompt, source, target, tsres_queue, tlres_queue, ready, device="cpu", error=None, level=None, para_detect=True, para_threshold_std=1.5, para_min_pause=0.8, para_max_chars=500, para_max_words=100, ai_processor=None, ai_process_interval=2, ai_process_words=None, ai_trigger_mode="time", silence_timeout=60, prres_queue=None, auto_stop_enabled=False, auto_stop_minutes=5, manual_trigger=None, use_google_translate=True):
+def proc(index, model, vad, memory, patience, timeout, prompt, source, target, tsres_queue, tlres_queue, ready, device="cpu", error=None, level=None, para_detect=True, para_threshold_std=1.5, para_min_pause=0.8, para_max_chars=500, para_max_words=100, ai_processor=None, ai_process_interval=2, ai_process_words=None, ai_trigger_mode="time", silence_timeout=60, prres_queue=None, auto_stop_enabled=False, auto_stop_minutes=5, manual_trigger=None, use_google_translate=True, channel_select=CHANNEL_MIX):
     # Create paragraph detector if enabled
     para_detector = ParagraphDetector(
         threshold_std=para_threshold_std,
@@ -462,7 +463,7 @@ def proc(index, model, vad, memory, patience, timeout, prompt, source, target, t
                     level[0] = min(100, int(rms / 328 * 100))
                 
                 # Convert to mono 16kHz for Whisper
-                mono_16k = resample_to_mono_16k(data_copy, sample_rate, channels)
+                mono_16k = resample_to_mono_16k(data_copy, sample_rate, channels, channel_select)
                 frame_queue.put(mono_16k)
             
             frame_queue.put(None)

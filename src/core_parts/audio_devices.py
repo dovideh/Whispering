@@ -8,6 +8,11 @@ TARGET_SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2  # 16-bit audio
 CHUNK_DURATION = 0.1  # seconds per chunk
 
+# Channel selection options
+CHANNEL_MIX = "mix"  # Mix all channels to mono (default)
+CHANNEL_LEFT = "left"  # Use only left channel
+CHANNEL_RIGHT = "right"  # Use only right channel
+
 
 def get_preferred_hostapi_index():
     """Find the best host API: ALSA only (JACK causes crashes)."""
@@ -21,9 +26,9 @@ def get_preferred_hostapi_index():
 def get_mic_names():
     """Get list of input device names, preferring stable devices."""
     devices_list = sd.query_devices()
-    
+
     mics = []
-    
+
     # First priority: ALSA virtual devices named "pipewire" or "pulse" (these route through PipeWire)
     for i, d in enumerate(devices_list):
         if d['max_input_channels'] > 0:
@@ -34,7 +39,7 @@ def get_mic_names():
                 continue
             if 'pipewire' in name_lower or name_lower == 'pulse':
                 mics.append((i, d['name']))
-    
+
     # Second priority: Simple ALSA hardware devices (limited channels, not default)
     for i, d in enumerate(devices_list):
         if d['max_input_channels'] > 0 and d['max_input_channels'] <= 8:
@@ -50,8 +55,44 @@ def get_mic_names():
             if 'hw:' in d['name']:  # Real hardware
                 if (i, d['name']) not in mics:
                     mics.append((i, d['name']))
-    
+
     return mics
+
+
+def get_monitor_names():
+    """Get list of speaker monitor device names (for capturing system audio output).
+
+    Monitor devices capture what's being played through speakers/headphones.
+    On PulseAudio/PipeWire, these typically have 'Monitor' in the name.
+    """
+    devices_list = sd.query_devices()
+
+    monitors = []
+
+    for i, d in enumerate(devices_list):
+        if d['max_input_channels'] > 0:
+            name_lower = d['name'].lower()
+            # Only ALSA devices (JACK crashes)
+            api_name = sd.query_hostapis(d['hostapi'])['name'].lower()
+            if 'alsa' not in api_name:
+                continue
+            # Look for monitor devices (PulseAudio/PipeWire convention)
+            if 'monitor' in name_lower:
+                monitors.append((i, d['name']))
+
+    return monitors
+
+
+def get_all_input_devices():
+    """Get both microphones and monitor devices, categorized.
+
+    Returns:
+        dict with 'mics' and 'monitors' keys, each containing list of (index, name) tuples
+    """
+    return {
+        'mics': get_mic_names(),
+        'monitors': get_monitor_names()
+    }
 
 
 def get_default_device_index():
@@ -123,17 +164,34 @@ def audio_to_wav_bytes(audio_data, sample_rate, sample_width, channels=1):
     return buffer
 
 
-def resample_to_mono_16k(data, orig_rate, orig_channels):
-    """Convert audio to mono 16kHz for Whisper."""
+def resample_to_mono_16k(data, orig_rate, orig_channels, channel_select=CHANNEL_MIX):
+    """Convert audio to mono 16kHz for Whisper.
+
+    Args:
+        data: Raw audio data (numpy array or bytes)
+        orig_rate: Original sample rate
+        orig_channels: Number of channels in original audio
+        channel_select: Which channel to use - CHANNEL_MIX (average all),
+                       CHANNEL_LEFT (left only), or CHANNEL_RIGHT (right only)
+    """
     # Ensure we have a copy to avoid memory issues
     audio = np.array(data, dtype=np.float32, copy=True) / 32768.0
-    
+
     # Convert to mono if stereo/multi-channel
     if orig_channels > 1 and len(audio.shape) > 1:
-        audio = audio.mean(axis=1)
+        if channel_select == CHANNEL_LEFT:
+            # Use only left channel (index 0)
+            audio = audio[:, 0]
+        elif channel_select == CHANNEL_RIGHT:
+            # Use only right channel (index 1, or last channel if mono)
+            channel_idx = min(1, audio.shape[1] - 1)
+            audio = audio[:, channel_idx]
+        else:
+            # Default: mix all channels
+            audio = audio.mean(axis=1)
     else:
         audio = audio.flatten()
-    
+
     # Resample if needed
     if orig_rate != TARGET_SAMPLE_RATE:
         # Simple resampling using linear interpolation
@@ -142,7 +200,7 @@ def resample_to_mono_16k(data, orig_rate, orig_channels):
         if new_length > 0:
             indices = np.linspace(0, len(audio) - 1, new_length)
             audio = np.interp(indices, np.arange(len(audio)), audio)
-    
+
     # Convert back to int16
     audio = (audio * 32768.0).clip(-32768, 32767).astype(np.int16)
     return audio.tobytes()
