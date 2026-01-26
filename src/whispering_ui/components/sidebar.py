@@ -330,25 +330,38 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
         ui.separator().classes('my-1')
 
-        # === AI & TTS COLLAPSIBLE PANEL ===
-        # Toggle button for AI & TTS settings
-        ai_tts_panel_visible = [False]  # Track panel visibility
+        # === AI & TTS LEFT DRAWER PANEL ===
+        # Create a dialog positioned on the left side that acts as a drawer
+        ai_tts_drawer = ui.dialog().props('position=left full-height seamless')
+        ai_tts_drawer_visible = [False]
 
-        def toggle_ai_tts_panel():
-            ai_tts_panel_visible[0] = not ai_tts_panel_visible[0]
-            ai_tts_panel.set_visibility(ai_tts_panel_visible[0])
-            ai_tts_toggle_btn.text = 'AI & TTS ▲' if ai_tts_panel_visible[0] else 'AI & TTS ▼'
+        def toggle_ai_tts_drawer():
+            ai_tts_drawer_visible[0] = not ai_tts_drawer_visible[0]
+            if ai_tts_drawer_visible[0]:
+                ai_tts_drawer.open()
+                ai_tts_toggle_btn.text = 'AI & TTS ◀'
+            else:
+                ai_tts_drawer.close()
+                ai_tts_toggle_btn.text = 'AI & TTS ▶'
+
+        # Handle drawer close via clicking outside
+        def on_drawer_hide():
+            ai_tts_drawer_visible[0] = False
+            ai_tts_toggle_btn.text = 'AI & TTS ▶'
+
+        ai_tts_drawer.on('hide', on_drawer_hide)
 
         ai_tts_toggle_btn = ui.button(
-            'AI & TTS ▼',
-            on_click=toggle_ai_tts_panel
+            'AI & TTS ▶',
+            on_click=toggle_ai_tts_drawer
         ).classes('w-full').props('dense flat')
 
-        # Collapsible panel container
-        ai_tts_panel = ui.column().classes('w-full gap-1 pl-2 border-l-2 border-gray-600')
-        ai_tts_panel.set_visibility(False)
-
-        with ai_tts_panel:
+        # Drawer content
+        with ai_tts_drawer, ui.card().classes('h-full w-80 p-3 gap-1').style('overflow-y: auto;'):
+            # Close button at top
+            with ui.row().classes('items-center justify-between w-full mb-2'):
+                ui.label('AI & TTS Settings').classes('font-bold text-sm')
+                ui.button(icon='close', on_click=lambda: (ai_tts_drawer.close(), setattr(ai_tts_toggle_btn, 'text', 'AI & TTS ▶'))).props('flat dense round size=sm')
             # === AI SECTION ===
             with ui.row().classes('items-center justify-between w-full'):
                 ui.label('AI Processing').classes('font-bold text-sm')
