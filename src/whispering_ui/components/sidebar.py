@@ -122,33 +122,40 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 file_list_label.text = f'{count} files selected'
                 duration_label.text = ''
 
-        # File selection using system native dialog
+        # File selection using system native dialog (Qt)
         async def on_add_files_click():
-            """Handle file selection using system native dialog - no copying."""
+            """Handle file selection using Qt native dialog - no copying."""
             try:
-                import webview
-                # Get the active webview window
-                windows = webview.windows
-                if windows:
-                    window = windows[0]
-                    file_types = ('Audio files (*.mp3;*.wav;*.flac;*.ogg;*.m4a;*.wma;*.aac;*.opus)', 'All files (*.*)')
-                    result = window.create_file_dialog(
-                        webview.OPEN_DIALOG,
-                        allow_multiple=True,
-                        file_types=file_types
+                from nicegui import run
+
+                def pick_files_qt():
+                    """Run Qt file dialog in separate thread."""
+                    from PyQt6.QtWidgets import QApplication, QFileDialog
+                    # Get or create QApplication
+                    qt_app = QApplication.instance()
+                    if qt_app is None:
+                        qt_app = QApplication([])
+
+                    files, _ = QFileDialog.getOpenFileNames(
+                        None,
+                        "Select Audio Files",
+                        "",
+                        "Audio files (*.mp3 *.wav *.flac *.ogg *.m4a *.wma *.aac *.opus);;All files (*.*)"
                     )
-                    if result:
-                        added = 0
-                        for file_path in result:
-                            if core.is_audio_file(file_path):
-                                if file_path not in state.file_transcription_paths:
-                                    state.file_transcription_paths.append(file_path)
-                                    added += 1
-                        update_file_list_display()
-                        if added > 0:
-                            ui.notify(f"Added {added} file(s)", type='positive')
-                else:
-                    ui.notify("No webview window available", type='warning')
+                    return files
+
+                result = await run.io_bound(pick_files_qt)
+
+                if result:
+                    added = 0
+                    for file_path in result:
+                        if core.is_audio_file(file_path):
+                            if file_path not in state.file_transcription_paths:
+                                state.file_transcription_paths.append(file_path)
+                                added += 1
+                    update_file_list_display()
+                    if added > 0:
+                        ui.notify(f"Added {added} file(s)", type='positive')
             except Exception as ex:
                 ui.notify(f"Error: {ex}", type='negative')
 
