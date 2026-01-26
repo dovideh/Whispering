@@ -19,38 +19,41 @@ def get_preferred_hostapi_index():
 
 
 def get_mic_names():
-    """Get list of input device names, preferring stable devices."""
+    """Get list of all input device names from ALSA (includes PipeWire-exposed devices).
+
+    JACK API is excluded as it causes memory corruption crashes.
+    PipeWire exposes JACK devices through ALSA, so they should still be available.
+    """
     devices_list = sd.query_devices()
-    
+    hostapis = sd.query_hostapis()
+
     mics = []
-    
-    # First priority: ALSA virtual devices named "pipewire" or "pulse" (these route through PipeWire)
+    seen_indices = set()
+
+    def add_device(i, name):
+        if i not in seen_indices:
+            seen_indices.add(i)
+            mics.append((i, name))
+
+    # First priority: PipeWire/Pulse virtual devices (most stable)
     for i, d in enumerate(devices_list):
         if d['max_input_channels'] > 0:
-            name_lower = d['name'].lower()
-            # Only ALSA devices (JACK crashes)
-            api_name = sd.query_hostapis(d['hostapi'])['name'].lower()
-            if 'alsa' not in api_name:
-                continue
-            if 'pipewire' in name_lower or name_lower == 'pulse':
-                mics.append((i, d['name']))
-    
-    # Second priority: Simple ALSA hardware devices (limited channels, not default)
+            api_name = hostapis[d['hostapi']]['name'].lower()
+            if 'alsa' in api_name:
+                name_lower = d['name'].lower()
+                if 'pipewire' in name_lower or name_lower == 'pulse':
+                    add_device(i, d['name'])
+
+    # Second priority: All other ALSA input devices
     for i, d in enumerate(devices_list):
-        if d['max_input_channels'] > 0 and d['max_input_channels'] <= 8:
-            api_name = sd.query_hostapis(d['hostapi'])['name'].lower()
-            if 'alsa' not in api_name:
-                continue
-            name_lower = d['name'].lower()
-            # Skip virtual devices we already added, skip default/jack
-            if 'pipewire' in name_lower or name_lower == 'pulse':
-                continue
-            if name_lower in ('default', 'jack'):
-                continue
-            if 'hw:' in d['name']:  # Real hardware
-                if (i, d['name']) not in mics:
-                    mics.append((i, d['name']))
-    
+        if d['max_input_channels'] > 0:
+            api_name = hostapis[d['hostapi']]['name'].lower()
+            if 'alsa' in api_name:
+                name_lower = d['name'].lower()
+                # Skip system/virtual devices that don't add value
+                if name_lower not in ('default', 'sysdefault', 'dmix'):
+                    add_device(i, d['name'])
+
     return mics
 
 
@@ -94,20 +97,20 @@ def get_device_info(device_index):
     if device_index is None:
         # Use smart default (pipewire/pulse)
         device_index = get_default_device_index()
-    
+
     if device_index is None:
         # Ultimate fallback
         return 48000, 1
-    
+
     device_info = sd.query_devices(device_index)
-    
+
     # Get native sample rate (or use default)
     sample_rate = int(device_info.get('default_samplerate', 48000))
-    
+
     # Get channels - limit to 2 to avoid issues with high channel count devices
     max_channels = int(device_info.get('max_input_channels', 1))
     channels = min(2, max(1, max_channels))  # Use 1-2 channels max
-    
+
     return sample_rate, channels
 
 
@@ -124,16 +127,22 @@ def audio_to_wav_bytes(audio_data, sample_rate, sample_width, channels=1):
 
 
 def resample_to_mono_16k(data, orig_rate, orig_channels):
-    """Convert audio to mono 16kHz for Whisper."""
+    """Convert audio to mono 16kHz for Whisper.
+
+    Args:
+        data: Raw audio data (numpy array or bytes)
+        orig_rate: Original sample rate
+        orig_channels: Number of channels in original audio
+    """
     # Ensure we have a copy to avoid memory issues
     audio = np.array(data, dtype=np.float32, copy=True) / 32768.0
-    
+
     # Convert to mono if stereo/multi-channel
     if orig_channels > 1 and len(audio.shape) > 1:
         audio = audio.mean(axis=1)
     else:
         audio = audio.flatten()
-    
+
     # Resample if needed
     if orig_rate != TARGET_SAMPLE_RATE:
         # Simple resampling using linear interpolation
@@ -142,7 +151,7 @@ def resample_to_mono_16k(data, orig_rate, orig_channels):
         if new_length > 0:
             indices = np.linspace(0, len(audio) - 1, new_length)
             audio = np.interp(indices, np.arange(len(audio)), audio)
-    
+
     # Convert back to int16
     audio = (audio * 32768.0).clip(-32768, 32767).astype(np.int16)
     return audio.tobytes()

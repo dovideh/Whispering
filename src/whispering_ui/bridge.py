@@ -69,19 +69,14 @@ class ProcessingBridge:
         if not self._validate_settings():
             return
 
-        # Reset state (but keep existing text for persistence)
+        # Reset state
         self.ready[0] = False
         self.error[0] = None
         self.state.error_message = None
         self.state.status_message = "Starting..."
         self.level[0] = 0
-        # Don't clear text buffers - keep outputs persistent between start/stop
-        # self.state.whisper_text = ""
-        # self.state.translation_text = ""
-        # self.state.ai_text = ""
-        # self._whisper_committed = ""
-        # self._translation_committed = ""
-        # self._ai_committed = ""
+        # Clear text buffers for new transcription session
+        self.clear_outputs()
         self._stream_live = False
         self._stop_requested = False
         self._auto_stopped = False
@@ -93,11 +88,17 @@ class ProcessingBridge:
         # Initialize AI processor if enabled
         self.ai_processor = self._create_ai_processor()
 
-        # Get mic index
-        if self.state.mic_index == 0:
+        # Get mic device index
+        mic_index = None
+        try:
+            if self.state.mic_index == 0 or not self.state.mic_list:
+                mic_index = core.get_default_device_index()
+            else:
+                idx = min(self.state.mic_index - 1, len(self.state.mic_list) - 1)
+                mic_index = self.state.mic_list[idx][0]
+        except (IndexError, TypeError) as e:
+            print(f"[WARN] Device selection error: {e}, falling back to default")
             mic_index = core.get_default_device_index()
-        else:
-            mic_index = self.state.mic_list[self.state.mic_index - 1][0]
 
         # Get translation target (None if "none")
         target = None if self.state.target_language == "none" else self.state.target_language
@@ -211,8 +212,8 @@ class ProcessingBridge:
             self.session_logger.finalize_session(stop_reason)
             self.state.current_log_request_id = None
 
-        # Write outputs to log and clear text windows on stop/auto-stop
-        self._flush_and_clear_outputs()
+        # Save outputs to log (but don't clear - text persists until next start)
+        self._save_outputs_to_log()
 
         # Update state
         self.state.is_recording = False
@@ -602,9 +603,8 @@ class ProcessingBridge:
 
         return config
 
-    def _flush_and_clear_outputs(self):
-        """Write current outputs to log and clear the three text windows."""
-        # If logging is enabled, ensure current outputs are saved
+    def _save_outputs_to_log(self):
+        """Write current outputs to log (if logging enabled)."""
         if self.state.log_enabled:
             outputs = {
                 "whisper_text": self.state.whisper_text,
@@ -620,7 +620,9 @@ class ProcessingBridge:
                 temp_request_id = self.session_logger.start_session(config)
                 self.session_logger.update_session(outputs)
                 self.session_logger.finalize_session("manual")
-        # Clear the three output buffers
+
+    def clear_outputs(self):
+        """Clear the three text output buffers. Call this when starting a new transcription."""
         self.state.whisper_text = ""
         self.state.ai_text = ""
         self.state.translation_text = ""

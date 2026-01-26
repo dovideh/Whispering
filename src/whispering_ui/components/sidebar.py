@@ -44,7 +44,7 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
             ui.button(icon='refresh', on_click=refresh_mics).props('flat dense round size=sm')
 
-        # === CONTROL SECTION (MOVED UP) ===
+        # === CONTROL SECTION ===
         control_btn = ui.button(
             'Start',
             on_click=lambda: _toggle_recording(state, bridge, control_btn, level_progress, status_label)

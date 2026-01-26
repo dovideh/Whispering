@@ -306,6 +306,67 @@ class SessionLogger:
             return str(self.current_temp_file.name.replace(".temp_", ""))
         return None
 
+    def load_session_outputs(self, log_file: Path) -> Optional[Dict[str, str]]:
+        """
+        Load the text outputs from a log file (temp or finalized).
+
+        Args:
+            log_file: Path to the log file
+
+        Returns:
+            Dictionary with whisper_text, ai_text, translation_text or None if failed
+        """
+        try:
+            if not log_file.exists():
+                return None
+
+            outputs = {
+                "whisper_text": "",
+                "ai_text": "",
+                "translation_text": ""
+            }
+
+            # Read the JSONL file and find the latest outputs entry
+            with open(log_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Parse each JSON object (they're separated by newlines but may be multi-line)
+            # Use a simple approach: find all complete JSON objects
+            import re
+            # Match JSON objects that start with { and have proper structure
+            entries = []
+            depth = 0
+            current_obj = ""
+            for char in content:
+                if char == '{':
+                    depth += 1
+                if depth > 0:
+                    current_obj += char
+                if char == '}':
+                    depth -= 1
+                    if depth == 0 and current_obj:
+                        try:
+                            entries.append(json.loads(current_obj))
+                        except json.JSONDecodeError:
+                            pass
+                        current_obj = ""
+
+            # Find the latest entry with non-empty outputs
+            for entry in reversed(entries):
+                if entry.get("outputs"):
+                    entry_outputs = entry["outputs"]
+                    if entry_outputs.get("whisper_text") or entry_outputs.get("ai_text") or entry_outputs.get("translation_text"):
+                        outputs["whisper_text"] = entry_outputs.get("whisper_text", "")
+                        outputs["ai_text"] = entry_outputs.get("ai_text", "")
+                        outputs["translation_text"] = entry_outputs.get("translation_text", "")
+                        break
+
+            return outputs
+
+        except Exception as e:
+            print(f"Error loading session outputs from {log_file}: {e}")
+            return None
+
 
 if __name__ == "__main__":
     """Test the session logger."""
