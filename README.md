@@ -6,6 +6,8 @@ Real-time speech-to-text application with AI-powered translation, proofreading, 
 
 Whispering combines [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for state-of-the-art speech recognition with modern AI models (Claude, GPT-4, Llama) to provide a powerful voice interface for your workflow.
 
+![Whispering Interface](Whispering.gif)
+
 ##  Key Features
 
 ###  Transcription & Translation
