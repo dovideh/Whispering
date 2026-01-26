@@ -351,10 +351,38 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
         ai_tts_drawer.on('hide', on_drawer_hide)
 
-        ai_tts_toggle_btn = ui.button(
-            'AI & TTS ▶',
-            on_click=toggle_ai_tts_drawer
-        ).classes('w-full').props('dense flat')
+        # Row with button and status indicators
+        with ui.row().classes('items-center w-full gap-1'):
+            ai_tts_toggle_btn = ui.button(
+                'AI & TTS ▶',
+                on_click=toggle_ai_tts_drawer
+            ).classes('flex-grow').props('dense flat')
+
+            # Status indicators
+            ai_indicator = ui.label('AI').classes('text-xs px-1 rounded')
+            tts_indicator = ui.label('TTS').classes('text-xs px-1 rounded')
+
+            def update_indicators():
+                """Update AI/TTS status indicators."""
+                if state.ai_enabled and state.ai_available:
+                    ai_indicator.classes(remove='bg-gray-600 text-gray-400')
+                    ai_indicator.classes(add='bg-green-700 text-white')
+                else:
+                    ai_indicator.classes(remove='bg-green-700 text-white')
+                    ai_indicator.classes(add='bg-gray-600 text-gray-400')
+
+                if state.tts_enabled and state.tts_available:
+                    tts_indicator.classes(remove='bg-gray-600 text-gray-400')
+                    tts_indicator.classes(add='bg-green-700 text-white')
+                else:
+                    tts_indicator.classes(remove='bg-green-700 text-white')
+                    tts_indicator.classes(add='bg-gray-600 text-gray-400')
+
+            # Initial state
+            update_indicators()
+
+            # Periodic update for indicator state
+            ui.timer(0.3, update_indicators)
 
         # Drawer content
         with ai_tts_drawer, ui.card().classes('h-full w-80 p-3 gap-1').style('overflow-y: auto;'):
