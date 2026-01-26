@@ -176,17 +176,14 @@ def get_audio_duration(file_path: str) -> float:
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Audio file not found: {file_path}")
 
-    ext = os.path.splitext(file_path)[1].lower()
+    # Try soundfile first (works for WAV, FLAC, OGG, and MP3 if libsndfile has MP3 support)
+    try:
+        info = sf.info(file_path)
+        return info.duration
+    except Exception:
+        pass  # Fall through to pydub
 
-    # Try soundfile first for formats it supports
-    if ext in ['.wav', '.flac', '.ogg']:
-        try:
-            info = sf.info(file_path)
-            return info.duration
-        except Exception:
-            pass  # Fall through to pydub
-
-    # Use pydub for MP3, M4A, and other formats
+    # Fall back to pydub for formats soundfile can't handle
     try:
         from pydub import AudioSegment
         audio = AudioSegment.from_file(file_path)
@@ -217,16 +214,13 @@ def load_audio_file(file_path: str, start_time: float = 0.0, end_time: float = N
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Audio file not found: {file_path}")
 
-    ext = os.path.splitext(file_path)[1].lower()
+    # Try soundfile first (works for WAV, FLAC, OGG, and MP3 if libsndfile has MP3 support)
+    try:
+        return _load_with_soundfile(file_path, start_time, end_time)
+    except Exception:
+        pass  # Fall through to pydub
 
-    # Try soundfile first for formats it supports well (WAV, FLAC, OGG)
-    if ext in ['.wav', '.flac', '.ogg']:
-        try:
-            return _load_with_soundfile(file_path, start_time, end_time)
-        except Exception:
-            pass  # Fall through to pydub
-
-    # Use pydub for MP3, M4A, and other formats (or as fallback)
+    # Fall back to pydub for formats soundfile can't handle
     try:
         return _load_with_pydub(file_path, start_time, end_time)
     except Exception as e:
