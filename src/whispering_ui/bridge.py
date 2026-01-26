@@ -762,6 +762,7 @@ class ProcessingBridge:
             self.state.current_log_request_id = None
 
         self.state.file_transcription_active = False
+        self.state.file_transcription_mode = False
         self.state.file_transcription_progress = 0
         self.state.file_transcription_current_file = ""
         self.state.status_message = "File transcription stopped"
@@ -781,6 +782,7 @@ class ProcessingBridge:
                 self._file_poll_timer.deactivate()
                 self._file_poll_timer = None
             self.state.file_transcription_active = False
+            self.state.file_transcription_mode = False
             self.state.file_transcription_progress = 100
             self.state.status_message = "File transcription complete"
 
