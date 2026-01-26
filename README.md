@@ -1,5 +1,7 @@
 # Whispering 🎙️
 
+**Version 1.2**
+
 Real-time speech-to-text application with AI-powered translation, proofreading, and voice cloning.
 
 Whispering combines [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for state-of-the-art speech recognition with modern AI models (Claude, GPT-4, Llama) to provide a powerful voice interface for your workflow.
@@ -115,6 +117,39 @@ The core dependencies are installed automatically by `install.sh`, but include:
 - `sounddevice`: Low-level audio input.
 - `pywebview` & `PyQt6`: For running as a native desktop window.
 - `pyautogui`: For the Auto-Type feature.
+
+## Capturing System Audio
+
+To capture speaker/system audio output on Linux with PipeWire:
+
+**Option 1: pw-loopback (Recommended)**
+```bash
+# Run before starting Whispering:
+pw-loopback --capture-props='media.class=Audio/Sink' --playback-props='media.class=Audio/Source'
+```
+Then select "pipewire" as your input device in Whispering.
+
+**Option 2: pavucontrol**
+1. Start Whispering and begin recording with "pipewire" selected
+2. Open `pavucontrol` → Recording tab
+3. Change Whispering's input to "Monitor of [your speakers]"
+
+**Option 3: qpwgraph**
+Use `qpwgraph` for visual JACK-style audio routing.
+
+## Changelog
+
+### Version 1.2
+**Improvements:**
+- Text output now persists when recording stops (clears only when new transcription starts)
+- Crash recovery properly restores text into the UI window
+- Thread-safe clipboard operations prevent crashes during active transcription
+- Clean shutdown handling (Ctrl+C exits gracefully)
+- Simplified audio device selection
+
+**Bug Fixes:**
+- Fixed copy/cut crash when used during active transcription
+- Fixed log recovery not displaying recovered text in main window
 
 ##  License
 
