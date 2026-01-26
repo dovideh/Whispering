@@ -122,41 +122,31 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 file_list_label.text = f'{count} files selected'
                 duration_label.text = ''
 
-        # File upload for multiple files
-        async def on_add_files_click():
-            """Handle file selection using native dialog - no copying."""
+        # File selection using system native dialog
+        def on_add_files_click():
+            """Handle file selection using system native dialog - no copying."""
             try:
-                from nicegui import run
-                import tkinter as tk
-                from tkinter import filedialog
-
-                # Run file dialog in executor to avoid blocking
-                def pick_files():
-                    root = tk.Tk()
-                    root.withdraw()
-                    root.attributes('-topmost', True)
-                    files = filedialog.askopenfilenames(
-                        title="Select Audio Files",
-                        filetypes=[
-                            ("Audio files", "*.mp3 *.wav *.flac *.ogg *.m4a *.wma *.aac *.opus"),
-                            ("All files", "*.*")
-                        ]
+                # Use pywebview's native file dialog
+                window = getattr(app.native, 'main_window', None)
+                if window:
+                    file_types = ('Audio files (*.mp3;*.wav;*.flac;*.ogg;*.m4a;*.wma;*.aac;*.opus)',)
+                    result = window.create_file_dialog(
+                        dialog_type=20,  # OPEN_DIALOG with multiple selection
+                        allow_multiple=True,
+                        file_types=file_types
                     )
-                    root.destroy()
-                    return files
-
-                file_paths = await run.io_bound(pick_files)
-
-                if file_paths:
-                    added = 0
-                    for file_path in file_paths:
-                        if core.is_audio_file(file_path):
-                            if file_path not in state.file_transcription_paths:
-                                state.file_transcription_paths.append(file_path)
-                                added += 1
-                    update_file_list_display()
-                    if added > 0:
-                        ui.notify(f"Added {added} file(s)", type='positive')
+                    if result:
+                        added = 0
+                        for file_path in result:
+                            if core.is_audio_file(file_path):
+                                if file_path not in state.file_transcription_paths:
+                                    state.file_transcription_paths.append(file_path)
+                                    added += 1
+                        update_file_list_display()
+                        if added > 0:
+                            ui.notify(f"Added {added} file(s)", type='positive')
+                else:
+                    ui.notify("Native file dialog not available", type='warning')
             except Exception as ex:
                 ui.notify(f"Error: {ex}", type='negative')
 
