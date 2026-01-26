@@ -330,215 +330,234 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
         ui.separator().classes('my-1')
 
-        # === AI SECTION ===
-        with ui.row().classes('items-center justify-between w-full'):
-            ui.label('AI Processing').classes('font-bold text-sm')
+        # === AI & TTS COLLAPSIBLE PANEL ===
+        # Toggle button for AI & TTS settings
+        ai_tts_panel_visible = [False]  # Track panel visibility
+
+        def toggle_ai_tts_panel():
+            ai_tts_panel_visible[0] = not ai_tts_panel_visible[0]
+            ai_tts_panel.set_visibility(ai_tts_panel_visible[0])
+            ai_tts_toggle_btn.text = 'AI & TTS ▲' if ai_tts_panel_visible[0] else 'AI & TTS ▼'
+
+        ai_tts_toggle_btn = ui.button(
+            'AI & TTS ▼',
+            on_click=toggle_ai_tts_panel
+        ).classes('w-full').props('dense flat')
+
+        # Collapsible panel container
+        ai_tts_panel = ui.column().classes('w-full gap-1 pl-2 border-l-2 border-gray-600')
+        ai_tts_panel.set_visibility(False)
+
+        with ai_tts_panel:
+            # === AI SECTION ===
+            with ui.row().classes('items-center justify-between w-full'):
+                ui.label('AI Processing').classes('font-bold text-sm')
+                if state.ai_available:
+                    ui.button(icon='help_outline', on_click=lambda: show_help_dialog('ai')).props('flat dense round size=sm')
+
+            # Enable AI checkbox
+            ai_cb = ui.checkbox('Enable AI', value=state.ai_enabled).props('dense')
+            ai_section = ui.column().classes('w-full gap-1')
+            ai_controls = []
+            ai_process_btn = None
+            ai_trigger_select = None
+            ai_interval_select = None
+            ai_words_num = None
+
+            def register_ai(control):
+                ai_controls.append(control)
+                return control
+
+            # AI controls
             if state.ai_available:
-                ui.button(icon='help_outline', on_click=lambda: show_help_dialog('ai')).props('flat dense round size=sm')
+                with ai_section:
+                    try:
+                        from ai_config import load_ai_config
+                        ai_config = load_ai_config()
+                        if ai_config:
+                            # Task selection
+                            personas = ai_config.get_personas()
+                            persona_names = [p['name'] for p in personas]
 
-        # Enable AI checkbox
-        ai_cb = ui.checkbox('Enable AI', value=state.ai_enabled).props('dense')
-        ai_section = ui.column().classes('w-full gap-1')
-        ai_controls = []
-        ai_process_btn = None
-        ai_trigger_select = None
-        ai_interval_select = None
-        ai_words_num = None
+                            with ui.row().classes('items-center w-full gap-1'):
+                                ui.label('Task:').classes('text-xs w-12')
+                                task_select = register_ai(ui.select(
+                                    options=persona_names,
+                                    value=persona_names[min(state.ai_persona_index, len(persona_names)-1)]
+                                ).classes('flex-grow').props('dense'))
+                                task_select.on_value_change(lambda e: setattr(state, 'ai_persona_index',
+                                                            persona_names.index(e.value) if e.value in persona_names else 0))
 
-        def register_ai(control):
-            ai_controls.append(control)
-            return control
+                            # Translate checkboxes - compact
+                            with ui.row().classes('items-center w-full gap-2'):
+                                ai_trans_cb = register_ai(ui.checkbox('Translate', value=state.ai_translate).props('dense'))
+                                ai_trans_cb.on_value_change(lambda e: setattr(state, 'ai_translate', e.value))
 
-        # AI controls
-        if state.ai_available:
-            with ai_section:
-                try:
-                    from ai_config import load_ai_config
-                    ai_config = load_ai_config()
-                    if ai_config:
-                        # Task selection
-                        personas = ai_config.get_personas()
-                        persona_names = [p['name'] for p in personas]
+                                ai_trans_only_cb = register_ai(ui.checkbox('Only (1:1)', value=state.ai_translate_only).props('dense'))
+                                ai_trans_only_cb.on_value_change(lambda e: setattr(state, 'ai_translate_only', e.value))
 
-                        with ui.row().classes('items-center w-full gap-1'):
-                            ui.label('Task:').classes('text-xs w-12')
-                            task_select = register_ai(ui.select(
-                                options=persona_names,
-                                value=persona_names[min(state.ai_persona_index, len(persona_names)-1)]
-                            ).classes('flex-grow').props('dense'))
-                            task_select.on_value_change(lambda e: setattr(state, 'ai_persona_index',
-                                                        persona_names.index(e.value) if e.value in persona_names else 0))
+                            # Model selection
+                            models = ai_config.get_models()
+                            model_names = [m['name'] for m in models]
 
-                        # Translate checkboxes - compact
-                        with ui.row().classes('items-center w-full gap-2'):
-                            ai_trans_cb = register_ai(ui.checkbox('Translate', value=state.ai_translate).props('dense'))
-                            ai_trans_cb.on_value_change(lambda e: setattr(state, 'ai_translate', e.value))
+                            with ui.row().classes('items-center w-full gap-1'):
+                                ui.label('Model:').classes('text-xs w-12')
+                                ai_model_combo = register_ai(ui.select(
+                                    options=model_names,
+                                    value=model_names[min(state.ai_model_index, len(model_names)-1)]
+                                ).classes('flex-grow').props('dense'))
+                                ai_model_combo.on_value_change(lambda e: setattr(state, 'ai_model_index',
+                                                               model_names.index(e.value) if e.value in model_names else 0))
 
-                            ai_trans_only_cb = register_ai(ui.checkbox('Only (1:1)', value=state.ai_translate_only).props('dense'))
-                            ai_trans_only_cb.on_value_change(lambda e: setattr(state, 'ai_translate_only', e.value))
+                            # Trigger controls - compact layout
+                            ai_manual_cb = register_ai(ui.checkbox('Manual mode', value=state.ai_manual_mode).props('dense'))
 
-                        # Model selection
-                        models = ai_config.get_models()
-                        model_names = [m['name'] for m in models]
+                            ai_process_btn = register_ai(ui.button('⚡ Process Now', on_click=lambda: bridge.manual_ai_trigger()).classes('w-full').props('dense'))
+                            ai_process_btn.set_enabled(state.ai_manual_mode)
 
-                        with ui.row().classes('items-center w-full gap-1'):
-                            ui.label('Model:').classes('text-xs w-12')
-                            ai_model_combo = register_ai(ui.select(
-                                options=model_names,
-                                value=model_names[min(state.ai_model_index, len(model_names)-1)]
-                            ).classes('flex-grow').props('dense'))
-                            ai_model_combo.on_value_change(lambda e: setattr(state, 'ai_model_index',
-                                                           model_names.index(e.value) if e.value in model_names else 0))
+                            # Trigger mode and settings
+                            with ui.row().classes('items-center w-full gap-1'):
+                                ui.label('Trigger:').classes('text-xs')
+                                ai_trigger_select = register_ai(ui.select(
+                                    options=["Time", "Words"],
+                                    value=state.ai_trigger_mode.capitalize()
+                                ).classes('w-16').props('dense'))
+                                ai_trigger_select.set_enabled(not state.ai_manual_mode)
 
-                        # Trigger controls - compact layout
-                        ai_manual_cb = register_ai(ui.checkbox('Manual mode', value=state.ai_manual_mode).props('dense'))
+                                # Interval control
+                                interval_labels = ["5s", "10s", "15s", "20s", "25s", "30s", "45s", "1m", "1.5m", "2m"]
+                                interval_values = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120]
+                                interval_map = dict(zip(interval_labels, interval_values))
 
-                        ai_process_btn = register_ai(ui.button('⚡ Process Now', on_click=lambda: bridge.manual_ai_trigger()).classes('w-full').props('dense'))
-                        ai_process_btn.set_enabled(state.ai_manual_mode)
+                                current_label = "20s"
+                                for lbl, val in interval_map.items():
+                                    if val == state.ai_process_interval:
+                                        current_label = lbl
+                                        break
 
-                        # Trigger mode and settings
-                        with ui.row().classes('items-center w-full gap-1'):
-                            ui.label('Trigger:').classes('text-xs')
-                            ai_trigger_select = register_ai(ui.select(
-                                options=["Time", "Words"],
-                                value=state.ai_trigger_mode.capitalize()
-                            ).classes('w-16').props('dense'))
-                            ai_trigger_select.set_enabled(not state.ai_manual_mode)
+                                ui.label('Int:').classes('text-xs')
+                                ai_interval_select = register_ai(ui.select(
+                                    options=interval_labels,
+                                    value=current_label
+                                ).classes('w-14').props('dense'))
 
-                            # Interval control
-                            interval_labels = ["5s", "10s", "15s", "20s", "25s", "30s", "45s", "1m", "1.5m", "2m"]
-                            interval_values = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120]
-                            interval_map = dict(zip(interval_labels, interval_values))
+                                def on_interval_change(e):
+                                    state.ai_process_interval = interval_map.get(e.value, 20)
 
-                            current_label = "20s"
-                            for lbl, val in interval_map.items():
-                                if val == state.ai_process_interval:
-                                    current_label = lbl
-                                    break
+                                ai_interval_select.on_value_change(on_interval_change)
+                                ai_interval_select.set_enabled(not state.ai_manual_mode)
+                                ai_interval_select.set_visibility(state.ai_trigger_mode == "time")
 
-                            ui.label('Int:').classes('text-xs')
-                            ai_interval_select = register_ai(ui.select(
-                                options=interval_labels,
-                                value=current_label
-                            ).classes('w-14').props('dense'))
+                                ui.label('W:').classes('text-xs')
+                                ai_words_num = register_ai(ui.number(value=state.ai_process_words, min=50, max=500, step=50).classes('w-16').props('dense'))
+                                ai_words_num.on_value_change(lambda e: setattr(state, 'ai_process_words', int(e.value or 150)))
+                                ai_words_num.set_enabled(not state.ai_manual_mode)
+                                ai_words_num.set_visibility(state.ai_trigger_mode == "words")
 
-                            def on_interval_change(e):
-                                state.ai_process_interval = interval_map.get(e.value, 20)
+                            # Wire up event handlers
+                            ai_manual_cb.on_value_change(lambda e: _on_manual_mode_changed(
+                                state, e.value, ai_process_btn, ai_trigger_select, ai_interval_select, ai_words_num))
 
-                            ai_interval_select.on_value_change(on_interval_change)
-                            ai_interval_select.set_enabled(not state.ai_manual_mode)
-                            ai_interval_select.set_visibility(state.ai_trigger_mode == "time")
+                            ai_trigger_select.on_value_change(lambda e: _on_trigger_changed(
+                                state, e.value, ai_interval_select, ai_words_num))
 
-                            ui.label('W:').classes('text-xs')
-                            ai_words_num = register_ai(ui.number(value=state.ai_process_words, min=50, max=500, step=50).classes('w-16').props('dense'))
-                            ai_words_num.on_value_change(lambda e: setattr(state, 'ai_process_words', int(e.value or 150)))
-                            ai_words_num.set_enabled(not state.ai_manual_mode)
-                            ai_words_num.set_visibility(state.ai_trigger_mode == "words")
+                    except Exception as e:
+                        print(f"Error loading AI config: {e}")
 
-                        # Wire up event handlers
-                        ai_manual_cb.on_value_change(lambda e: _on_manual_mode_changed(
-                            state, e.value, ai_process_btn, ai_trigger_select, ai_interval_select, ai_words_num))
+            def on_ai_toggle(e):
+                state.ai_enabled = e.value
+                active = e.value and state.ai_available
+                _set_section_visual_state(ai_section, active)
+                _set_controls_enabled(ai_controls, active)
+                if active and state.ai_available and all(ctrl is not None for ctrl in (ai_process_btn, ai_trigger_select, ai_interval_select, ai_words_num)):
+                    _on_manual_mode_changed(state, state.ai_manual_mode, ai_process_btn, ai_trigger_select, ai_interval_select, ai_words_num)
+                    _on_trigger_changed(state, state.ai_trigger_mode.capitalize(), ai_interval_select, ai_words_num)
 
-                        ai_trigger_select.on_value_change(lambda e: _on_trigger_changed(
-                            state, e.value, ai_interval_select, ai_words_num))
+            ai_cb.on_value_change(on_ai_toggle)
+            if not state.ai_available:
+                ai_cb.disable()
 
-                except Exception as e:
-                    print(f"Error loading AI config: {e}")
+            _set_section_visual_state(ai_section, state.ai_enabled and state.ai_available)
+            _set_controls_enabled(ai_controls, state.ai_enabled and state.ai_available)
 
-        def on_ai_toggle(e):
-            state.ai_enabled = e.value
-            active = e.value and state.ai_available
-            _set_section_visual_state(ai_section, active)
-            _set_controls_enabled(ai_controls, active)
-            if active and state.ai_available and all(ctrl is not None for ctrl in (ai_process_btn, ai_trigger_select, ai_interval_select, ai_words_num)):
-                _on_manual_mode_changed(state, state.ai_manual_mode, ai_process_btn, ai_trigger_select, ai_interval_select, ai_words_num)
-                _on_trigger_changed(state, state.ai_trigger_mode.capitalize(), ai_interval_select, ai_words_num)
+            ui.separator().classes('my-1')
 
-        ai_cb.on_value_change(on_ai_toggle)
-        if not state.ai_available:
-            ai_cb.disable()
+            # === TTS SECTION ===
+            with ui.row().classes('items-center justify-between w-full'):
+                ui.label('Text-to-Speech').classes('font-bold text-sm')
+                if state.tts_available:
+                    ui.button(icon='help_outline', on_click=lambda: show_help_dialog('tts')).props('flat dense round size=sm')
 
-        _set_section_visual_state(ai_section, state.ai_enabled and state.ai_available)
-        _set_controls_enabled(ai_controls, state.ai_enabled and state.ai_available)
+            # Enable TTS
+            tts_cb = ui.checkbox('Enable TTS', value=state.tts_enabled).props('dense')
+            tts_section = ui.column().classes('w-full gap-1')
+            tts_controls = []
 
-        ui.separator().classes('my-1')
+            def register_tts(control):
+                tts_controls.append(control)
+                return control
 
-        # === TTS SECTION ===
-        with ui.row().classes('items-center justify-between w-full'):
-            ui.label('Text-to-Speech').classes('font-bold text-sm')
             if state.tts_available:
-                ui.button(icon='help_outline', on_click=lambda: show_help_dialog('tts')).props('flat dense round size=sm')
+                with tts_section:
+                    # Source selection - compact
+                    with ui.row().classes('items-center w-full gap-1'):
+                        ui.label('Src:').classes('text-xs w-10')
 
-        # Enable TTS
-        tts_cb = ui.checkbox('Enable TTS', value=state.tts_enabled).props('dense')
-        tts_section = ui.column().classes('w-full gap-1')
-        tts_controls = []
+                        tts_w_cb = register_tts(ui.checkbox('W', value=(state.tts_source == "whisper")).props('dense'))
+                        tts_a_cb = register_tts(ui.checkbox('A', value=(state.tts_source == "ai")).props('dense'))
+                        tts_t_cb = register_tts(ui.checkbox('T', value=(state.tts_source == "translation")).props('dense'))
 
-        def register_tts(control):
-            tts_controls.append(control)
-            return control
+                        tts_w_cb.on_value_change(lambda e: _on_tts_source_changed(state, "whisper", e.value, tts_w_cb, tts_a_cb, tts_t_cb))
+                        tts_a_cb.on_value_change(lambda e: _on_tts_source_changed(state, "ai", e.value, tts_w_cb, tts_a_cb, tts_t_cb))
+                        tts_t_cb.on_value_change(lambda e: _on_tts_source_changed(state, "translation", e.value, tts_w_cb, tts_a_cb, tts_t_cb))
 
-        if state.tts_available:
-            with tts_section:
-                # Source selection - compact
-                with ui.row().classes('items-center w-full gap-1'):
-                    ui.label('Src:').classes('text-xs w-10')
+                    # Voice selection with streamlined upload
+                    with ui.row().classes('items-center w-full gap-1'):
+                        ui.label('Voice:').classes('text-xs w-10')
+                        tts_voice_label = ui.label(state.tts_voice_display_name).classes('flex-grow text-xs text-gray-400 truncate')
 
-                    tts_w_cb = register_tts(ui.checkbox('W', value=(state.tts_source == "whisper")).props('dense'))
-                    tts_a_cb = register_tts(ui.checkbox('A', value=(state.tts_source == "ai")).props('dense'))
-                    tts_t_cb = register_tts(ui.checkbox('T', value=(state.tts_source == "translation")).props('dense'))
+                        upload = register_tts(ui.upload(
+                            on_upload=lambda e: _on_voice_upload(e, state, bridge, tts_voice_label),
+                            auto_upload=True,
+                            max_file_size=50_000_000,
+                            max_files=1
+                        ).props('accept=audio/*').classes('hidden'))
 
-                    tts_w_cb.on_value_change(lambda e: _on_tts_source_changed(state, "whisper", e.value, tts_w_cb, tts_a_cb, tts_t_cb))
-                    tts_a_cb.on_value_change(lambda e: _on_tts_source_changed(state, "ai", e.value, tts_w_cb, tts_a_cb, tts_t_cb))
-                    tts_t_cb.on_value_change(lambda e: _on_tts_source_changed(state, "translation", e.value, tts_w_cb, tts_a_cb, tts_t_cb))
+                        register_tts(ui.button(icon='folder_open', on_click=lambda u=upload: u.run_method('pickFiles')).props('flat dense round size=sm'))
+                        register_tts(ui.button(icon='clear', on_click=lambda: _clear_voice(state, bridge, tts_voice_label)).props('flat dense round size=sm'))
 
-                # Voice selection with streamlined upload
-                with ui.row().classes('items-center w-full gap-1'):
-                    ui.label('Voice:').classes('text-xs w-10')
-                    tts_voice_label = ui.label(state.tts_voice_display_name).classes('flex-grow text-xs text-gray-400 truncate')
+                    # Output options - compact
+                    with ui.row().classes('items-center w-full gap-1'):
+                        ui.label('Out:').classes('text-xs w-10')
+                        tts_save_cb = register_tts(ui.checkbox('Save', value=state.tts_save_file).props('dense'))
+                        tts_save_cb.on_value_change(lambda e: setattr(state, 'tts_save_file', e.value))
 
-                    upload = register_tts(ui.upload(
-                        on_upload=lambda e: _on_voice_upload(e, state, bridge, tts_voice_label),
-                        auto_upload=True,
-                        max_file_size=50_000_000,
-                        max_files=1
-                    ).props('accept=audio/*').classes('hidden'))
+                        tts_format_select = register_tts(ui.select(options=["wav", "ogg"], value=state.tts_format).classes('w-16').props('dense'))
+                        tts_format_select.on_value_change(lambda e: setattr(state, 'tts_format', e.value))
 
-                    register_tts(ui.button(icon='folder_open', on_click=lambda u=upload: u.run_method('pickFiles')).props('flat dense round size=sm'))
-                    register_tts(ui.button(icon='clear', on_click=lambda: _clear_voice(state, bridge, tts_voice_label)).props('flat dense round size=sm'))
+                    # TTS status - compact
+                    tts_status_label = ui.label('').classes('text-xs text-blue-400')
 
-                # Output options - compact
-                with ui.row().classes('items-center w-full gap-1'):
-                    ui.label('Out:').classes('text-xs w-10')
-                    tts_save_cb = register_tts(ui.checkbox('Save', value=state.tts_save_file).props('dense'))
-                    tts_save_cb.on_value_change(lambda e: setattr(state, 'tts_save_file', e.value))
+                    def update_tts_status():
+                        if state.tts_status_message:
+                            tts_status_label.text = state.tts_status_message[:50]
+                        else:
+                            tts_status_label.text = ''
 
-                    tts_format_select = register_tts(ui.select(options=["wav", "ogg"], value=state.tts_format).classes('w-16').props('dense'))
-                    tts_format_select.on_value_change(lambda e: setattr(state, 'tts_format', e.value))
+                    ui.timer(0.2, update_tts_status)
 
-                # TTS status - compact
-                tts_status_label = ui.label('').classes('text-xs text-blue-400')
+            def on_tts_toggle(e):
+                state.tts_enabled = e.value
+                active = e.value and state.tts_available
+                _set_section_visual_state(tts_section, active)
+                _set_controls_enabled(tts_controls, active)
 
-                def update_tts_status():
-                    if state.tts_status_message:
-                        tts_status_label.text = state.tts_status_message[:50]
-                    else:
-                        tts_status_label.text = ''
+            tts_cb.on_value_change(on_tts_toggle)
+            if not state.tts_available:
+                tts_cb.disable()
 
-                ui.timer(0.2, update_tts_status)
-
-        def on_tts_toggle(e):
-            state.tts_enabled = e.value
-            active = e.value and state.tts_available
-            _set_section_visual_state(tts_section, active)
-            _set_controls_enabled(tts_controls, active)
-
-        tts_cb.on_value_change(on_tts_toggle)
-        if not state.tts_available:
-            tts_cb.disable()
-
-        _set_section_visual_state(tts_section, state.tts_enabled and state.tts_available)
-        _set_controls_enabled(tts_controls, state.tts_enabled and state.tts_available)
+            _set_section_visual_state(tts_section, state.tts_enabled and state.tts_available)
+            _set_controls_enabled(tts_controls, state.tts_enabled and state.tts_available)
 
         # Update UI periodically - faster for audio level
         def update_ui():
