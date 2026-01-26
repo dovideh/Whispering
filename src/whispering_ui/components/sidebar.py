@@ -186,12 +186,9 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
             ).classes('w-16').props('dense')
             end_input.tooltip('End time (M:SS, H:MM:SS, or "end")')
 
-            # Play button for scrubbing
-            play_btn = ui.button(icon='play_arrow', on_click=lambda: _play_audio_preview(state, bridge)).props('flat dense round size=sm')
-            play_btn.tooltip('Preview audio')
-
-            stop_play_btn = ui.button(icon='stop', on_click=lambda: bridge.stop_audio_playback()).props('flat dense round size=sm')
-            stop_play_btn.tooltip('Stop preview')
+            # Play/Pause button for scrubbing
+            play_btn = ui.button(icon='play_arrow', on_click=lambda: _toggle_audio_preview(state, bridge, play_btn, start_input)).props('flat dense round size=sm')
+            play_btn.tooltip('Play/Pause preview')
 
         # Progress bar for file transcription
         file_progress = ui.linear_progress(value=0, show_value=False).classes('w-full')
@@ -215,6 +212,9 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 on_click=lambda: _stop_file_transcription(state, bridge, file_start_btn, file_stop_btn, file_progress)
             ).classes('w-16').props('dense color=negative')
             file_stop_btn.set_enabled(False)
+
+        # Track last known playback state to detect changes
+        last_playback_state = [False]
 
         # Update file transcription UI periodically
         def update_file_ui():
@@ -240,9 +240,20 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 if state.file_last_saved_time and state.file_transcription_progress == 100:
                     save_indicator.text = f"Saved {state.file_last_saved_time}: {state.file_last_saved_text}"
 
-            # Update play button state
-            play_btn.set_enabled(len(state.file_transcription_paths) > 0 and not state.file_playback_active)
-            stop_play_btn.set_enabled(state.file_playback_active)
+            # Update play button icon and state
+            play_btn.set_enabled(len(state.file_transcription_paths) > 0)
+            if state.file_playback_active:
+                play_btn._props['icon'] = 'pause'
+                play_btn.update()
+            else:
+                play_btn._props['icon'] = 'play_arrow'
+                play_btn.update()
+
+            # Update start time input when playback stops
+            if last_playback_state[0] and not state.file_playback_active:
+                # Playback just stopped - update start time input
+                start_input.value = _format_time(state.file_start_time)
+            last_playback_state[0] = state.file_playback_active
 
         ui.timer(0.2, update_file_ui)
 
@@ -885,3 +896,21 @@ def _play_audio_preview(state: AppState, bridge: ProcessingBridge):
 
     bridge.play_audio_file(file_path, start_time)
     ui.notify(f"Playing from {_format_time(start_time)}")
+
+
+def _toggle_audio_preview(state: AppState, bridge: ProcessingBridge, play_btn, start_input):
+    """Toggle audio playback - play if stopped, pause if playing."""
+    if not state.file_transcription_paths:
+        return
+
+    file_path = state.file_transcription_paths[0]
+
+    if state.file_playback_active:
+        # Stop playback - position will be updated in bridge.stop_audio_playback
+        bridge.stop_audio_playback()
+        ui.notify(f"Paused at {_format_time(state.file_start_time)}")
+    else:
+        # Start playback from current start time
+        start_time = state.file_start_time
+        bridge.play_audio_file(file_path, start_time)
+        ui.notify(f"Playing from {_format_time(start_time)}")

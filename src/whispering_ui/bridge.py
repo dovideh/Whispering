@@ -4,6 +4,7 @@ Bridge Module
 Connects UI-agnostic state to core processing logic
 """
 
+import queue
 import threading
 import time
 from typing import Optional
@@ -677,8 +678,11 @@ class ProcessingBridge:
         self._file_current = [""]
         self._file_position = [0.0]  # Current position tracker
 
+        # Use standard queue for file transcription (not PairDeque which merges results)
+        self._file_ts_queue = queue.Queue()
+
         # Save queue for periodic saves
-        self._save_queue = Queue(PairDeque())
+        self._save_queue = queue.Queue()
 
         # Get source language
         source = None if self.state.source_language == "auto" else self.state.source_language
@@ -695,7 +699,7 @@ class ProcessingBridge:
                 self.state.model,
                 self.state.vad_enabled,
                 source,
-                self.ts_queue,
+                self._file_ts_queue,
                 self._file_ready,
                 self.state.device,
                 self._file_error,
@@ -770,6 +774,9 @@ class ProcessingBridge:
         """Poll result queues for file transcription."""
         # Check if stopped
         if self._file_ready[0] is None:
+            # Drain any remaining items from queue
+            self._drain_file_queue()
+
             if self._file_poll_timer:
                 self._file_poll_timer.deactivate()
                 self._file_poll_timer = None
@@ -800,30 +807,43 @@ class ProcessingBridge:
         self.state.file_transcription_current_file = self._file_current[0]
         self.state.status_message = f"Processing: {self._file_current[0]}" if self._file_current[0] else "Processing..."
 
-        # Poll whisper queue for file transcription results
-        while self.ts_queue:
-            res = self.ts_queue.get()
-            if res:
-                done, curr = res
-                if done:
-                    # Append to whisper text
-                    self.state.whisper_text += done
-                    self._whisper_committed += done
-
-                    # Update logging
-                    if self.state.log_enabled and self.state.current_log_request_id:
-                        outputs = {"whisper_text": self.state.whisper_text}
-                        self.session_logger.update_session(outputs)
+        # Poll file transcription queue (standard queue.Queue)
+        self._drain_file_queue()
 
         # Poll save queue for save notifications
-        if hasattr(self, '_save_queue') and self._save_queue:
-            while self._save_queue:
-                save_info = self._save_queue.get()
-                if save_info:
-                    file_path, position, preview, timestamp = save_info
-                    self.state.file_last_saved_text = preview
-                    self.state.file_last_saved_time = timestamp
-                    self.state.file_last_saved_position = position
+        if hasattr(self, '_save_queue'):
+            try:
+                while True:
+                    save_info = self._save_queue.get_nowait()
+                    if save_info:
+                        file_path, position, preview, timestamp = save_info
+                        self.state.file_last_saved_text = preview
+                        self.state.file_last_saved_time = timestamp
+                        self.state.file_last_saved_position = position
+            except queue.Empty:
+                pass
+
+    def _drain_file_queue(self):
+        """Drain the file transcription queue and update whisper text."""
+        if not hasattr(self, '_file_ts_queue'):
+            return
+
+        try:
+            while True:
+                res = self._file_ts_queue.get_nowait()
+                if res:
+                    done, curr = res
+                    if done:
+                        # Append to whisper text
+                        self.state.whisper_text += done
+                        self._whisper_committed += done
+
+                        # Update logging
+                        if self.state.log_enabled and self.state.current_log_request_id:
+                            outputs = {"whisper_text": self.state.whisper_text}
+                            self.session_logger.update_session(outputs)
+        except queue.Empty:
+            pass
 
     def add_files_for_transcription(self, file_paths: list):
         """Add files to the transcription queue.
@@ -984,10 +1004,20 @@ class ProcessingBridge:
         threading.Thread(target=play_audio, daemon=True).start()
 
     def stop_audio_playback(self):
-        """Stop audio playback."""
+        """Stop audio playback and update start position to current position."""
         try:
             import sounddevice as sd
             sd.stop()
+            # Update start time to where we stopped (for scrubbing)
+            if self.state.file_playback_active:
+                self.state.file_start_time = self.state.file_playback_position
             self.state.file_playback_active = False
         except Exception as e:
             print(f"Stop playback error: {e}")
+
+    def toggle_audio_playback(self, file_path: str, start_time: float = 0.0):
+        """Toggle audio playback - play if stopped, stop if playing."""
+        if self.state.file_playback_active:
+            self.stop_audio_playback()
+        else:
+            self.play_audio_file(file_path, start_time)
