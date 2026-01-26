@@ -19,12 +19,10 @@ def get_preferred_hostapi_index():
 
 
 def get_mic_names():
-    """Get list of all input device names, organized by priority.
+    """Get list of all input device names from ALSA (includes PipeWire-exposed devices).
 
-    Returns all devices with input channels, prioritized as:
-    1. PipeWire/Pulse (most stable routing)
-    2. ALSA hardware devices
-    3. JACK devices (for advanced routing/loopback)
+    JACK API is excluded as it causes memory corruption crashes.
+    PipeWire exposes JACK devices through ALSA, so they should still be available.
     """
     devices_list = sd.query_devices()
     hostapis = sd.query_hostapis()
@@ -37,32 +35,24 @@ def get_mic_names():
             seen_indices.add(i)
             mics.append((i, name))
 
-    # First priority: PipeWire/Pulse virtual devices (stable routing)
-    for i, d in enumerate(devices_list):
-        if d['max_input_channels'] > 0:
-            name_lower = d['name'].lower()
-            api_name = hostapis[d['hostapi']]['name'].lower()
-            if 'alsa' in api_name:
-                if 'pipewire' in name_lower or name_lower == 'pulse':
-                    add_device(i, d['name'])
-
-    # Second priority: ALSA hardware devices
+    # First priority: PipeWire/Pulse virtual devices (most stable)
     for i, d in enumerate(devices_list):
         if d['max_input_channels'] > 0:
             api_name = hostapis[d['hostapi']]['name'].lower()
             if 'alsa' in api_name:
                 name_lower = d['name'].lower()
-                # Skip virtual/system devices, add hardware
-                if name_lower not in ('default', 'sysdefault', 'jack', 'dmix'):
-                    if 'hw:' in d['name'] or 'pulse' not in name_lower and 'pipewire' not in name_lower:
-                        add_device(i, d['name'])
+                if 'pipewire' in name_lower or name_lower == 'pulse':
+                    add_device(i, d['name'])
 
-    # Third priority: JACK devices (for loopback/advanced routing)
+    # Second priority: All other ALSA input devices
     for i, d in enumerate(devices_list):
         if d['max_input_channels'] > 0:
             api_name = hostapis[d['hostapi']]['name'].lower()
-            if 'jack' in api_name:
-                add_device(i, f"[JACK] {d['name']}")
+            if 'alsa' in api_name:
+                name_lower = d['name'].lower()
+                # Skip system/virtual devices that don't add value
+                if name_lower not in ('default', 'sysdefault', 'dmix'):
+                    add_device(i, d['name'])
 
     return mics
 
