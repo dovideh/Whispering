@@ -123,15 +123,17 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 duration_label.text = ''
 
         # File selection using system native dialog
-        def on_add_files_click():
+        async def on_add_files_click():
             """Handle file selection using system native dialog - no copying."""
             try:
-                # Use pywebview's native file dialog
-                window = getattr(app.native, 'main_window', None)
-                if window:
-                    file_types = ('Audio files (*.mp3;*.wav;*.flac;*.ogg;*.m4a;*.wma;*.aac;*.opus)',)
+                import webview
+                # Get the active webview window
+                windows = webview.windows
+                if windows:
+                    window = windows[0]
+                    file_types = ('Audio files (*.mp3;*.wav;*.flac;*.ogg;*.m4a;*.wma;*.aac;*.opus)', 'All files (*.*)')
                     result = window.create_file_dialog(
-                        dialog_type=20,  # OPEN_DIALOG with multiple selection
+                        webview.OPEN_DIALOG,
                         allow_multiple=True,
                         file_types=file_types
                     )
@@ -146,7 +148,7 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                         if added > 0:
                             ui.notify(f"Added {added} file(s)", type='positive')
                 else:
-                    ui.notify("Native file dialog not available", type='warning')
+                    ui.notify("No webview window available", type='warning')
             except Exception as ex:
                 ui.notify(f"Error: {ex}", type='negative')
 
