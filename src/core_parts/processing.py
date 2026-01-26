@@ -20,7 +20,8 @@ except ImportError:
 from .paragraph_detector import ParagraphDetector
 from .audio_devices import (
     TARGET_SAMPLE_RATE, SAMPLE_WIDTH, CHUNK_DURATION,
-    get_default_device_index, get_device_info, audio_to_wav_bytes, resample_to_mono_16k
+    get_default_device_index, get_device_info, audio_to_wav_bytes, resample_to_mono_16k,
+    load_audio_file
 )
 
 def translate(text, source, target, timeout):
@@ -473,4 +474,108 @@ def proc(index, model, vad, memory, patience, timeout, prompt, source, target, t
         if error is not None:
             error[0] = str(e)
     finally:
+        ready[0] = None
+
+
+def proc_file(file_paths, model, vad, source, tsres_queue, ready, device="cpu", error=None, progress=None, current_file=None, para_detect=True, para_threshold_std=1.5, para_min_pause=0.8, para_max_chars=500, para_max_words=100):
+    """
+    Process audio files for transcription (batch mode).
+
+    Args:
+        file_paths: List of audio file paths to transcribe
+        model: Whisper model size (e.g., 'large-v3')
+        vad: Enable voice activity detection
+        source: Source language (None for auto-detect)
+        tsres_queue: Queue for transcription results (done_text, curr_text)
+        ready: Control flag [None=stopped, False=stopping, True=running]
+        device: 'cpu' or 'cuda'
+        error: Error message container [str or None]
+        progress: Progress percentage container [0-100]
+        current_file: Currently processing file name container [str]
+        para_detect: Enable paragraph detection
+        para_threshold_std: Paragraph detection threshold
+        para_min_pause: Minimum pause for paragraph break
+        para_max_chars: Max characters before forced paragraph break
+        para_max_words: Max words before forced paragraph break
+
+    Output Queue Format:
+        - (done_text, "") for each completed file
+        - None when all files are processed
+    """
+    # Create paragraph detector if enabled
+    para_detector = ParagraphDetector(
+        threshold_std=para_threshold_std,
+        min_pause=para_min_pause,
+        max_chars=para_max_chars,
+        max_words=para_max_words
+    ) if para_detect else None
+
+    try:
+        # Load model
+        whisper_model = WhisperModel(model, device=device)
+        ready[0] = True
+
+        total_files = len(file_paths)
+
+        for file_index, file_path in enumerate(file_paths):
+            # Check if stop requested
+            if ready[0] is False or ready[0] is None:
+                break
+
+            # Update current file name
+            if current_file is not None:
+                import os
+                current_file[0] = os.path.basename(file_path)
+
+            # Update progress
+            if progress is not None:
+                progress[0] = int((file_index / total_files) * 100)
+
+            try:
+                # Load audio file
+                audio_bytes, sample_rate, duration = load_audio_file(file_path)
+
+                # Create WAV in memory for Whisper
+                audio_file = audio_to_wav_bytes(audio_bytes, sample_rate, SAMPLE_WIDTH, channels=1)
+
+                # Transcribe
+                segments, info = whisper_model.transcribe(
+                    audio_file,
+                    language=source,
+                    vad_filter=vad
+                )
+
+                # Collect all segments
+                segments_list = list(segments)
+
+                # Process with paragraph detection if enabled
+                if para_detector and segments_list:
+                    transcription = para_detector.process_segments(segments_list, 0.0)
+                else:
+                    transcription = "".join(segment.text for segment in segments_list)
+
+                # Add file header
+                import os
+                file_name = os.path.basename(file_path)
+                result_text = f"\n--- {file_name} ---\n{transcription.strip()}\n"
+
+                # Send result
+                tsres_queue.put((result_text, ""))
+
+            except Exception as file_error:
+                # Send error for this file but continue with others
+                import os
+                file_name = os.path.basename(file_path)
+                error_text = f"\n--- {file_name} ---\n[Error: {str(file_error)}]\n"
+                tsres_queue.put((error_text, ""))
+
+        # Final progress update
+        if progress is not None:
+            progress[0] = 100
+
+    except Exception as e:
+        if error is not None:
+            error[0] = str(e)
+    finally:
+        tsres_queue.put(None)
         ready[0] = None

@@ -67,6 +67,37 @@ See AI_SETUP.md for details.""",
 
 **Setup:** See INSTALL_TTS.md""",
 
+    "file_transcription": """**File Transcription:** Transcribe audio files (batch mode)
+
+**Add Files:** Select one or more audio files to transcribe
+- Supports: WAV, MP3, FLAC, OGG, M4A, AAC, WMA, OPUS
+- Max file size: 500MB per file
+- Multiple files can be added and processed sequentially
+
+**Transcribe:** Start processing the selected files
+- Uses same model settings as microphone transcription
+- Progress shown with percentage and current file name
+- Results appear in the Whisper text output
+
+**Stop:** Cancel file transcription (partial results preserved)
+
+**Clear (X):** Remove all files from the queue
+
+**Output Format:**
+```
+--- filename.mp3 ---
+[transcribed text]
+
+--- another_file.wav ---
+[transcribed text]
+```
+
+**Tips:**
+- Stop microphone recording before file transcription
+- Large files may take longer depending on model size
+- VAD helps filter silent sections
+- Paragraph detection adds natural line breaks""",
+
     "logging": """**Save logs:** Save session data to structured log files
 
 **Features:**

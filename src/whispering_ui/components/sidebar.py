@@ -74,6 +74,106 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
         ui.separator().classes('my-1')
 
+        # === FILE TRANSCRIPTION SECTION ===
+        with ui.row().classes('items-center justify-between w-full'):
+            ui.label('File Transcription').classes('font-bold text-sm')
+            ui.button(icon='help_outline', on_click=lambda: show_help_dialog('file_transcription')).props('flat dense round size=sm')
+
+        # File selection controls
+        file_list_label = ui.label('No files selected').classes('text-xs text-gray-400 truncate w-full')
+
+        def update_file_list_display():
+            """Update the file list display."""
+            count = len(state.file_transcription_paths)
+            if count == 0:
+                file_list_label.text = 'No files selected'
+            elif count == 1:
+                import os
+                file_list_label.text = os.path.basename(state.file_transcription_paths[0])
+            else:
+                file_list_label.text = f'{count} files selected'
+
+        # File upload for multiple files
+        def on_file_upload(e):
+            """Handle file upload for transcription."""
+            try:
+                import os
+                from pathlib import Path
+
+                # Create uploads directory if needed
+                uploads_dir = Path("uploads")
+                uploads_dir.mkdir(exist_ok=True)
+
+                # Read and save uploaded file
+                filename = Path(e.name).name
+                permanent_path = uploads_dir / filename
+
+                with open(e.name, 'rb') as f:
+                    content = f.read()
+
+                with open(permanent_path, 'wb') as f:
+                    f.write(content)
+
+                # Add to transcription list
+                if core.is_audio_file(str(permanent_path)):
+                    state.file_transcription_paths.append(str(permanent_path))
+                    update_file_list_display()
+                    ui.notify(f"Added: {filename}", type='positive')
+                else:
+                    ui.notify(f"Not an audio file: {filename}", type='warning')
+            except Exception as ex:
+                ui.notify(f"Error: {ex}", type='negative')
+
+        with ui.row().classes('items-center w-full gap-1'):
+            # Hidden file upload
+            file_upload = ui.upload(
+                on_upload=on_file_upload,
+                auto_upload=True,
+                max_file_size=500_000_000,  # 500MB
+                multiple=True
+            ).props('accept=audio/*').classes('hidden')
+
+            ui.button('Add Files', on_click=lambda: file_upload.run_method('pickFiles')).classes('flex-grow').props('dense')
+            ui.button(icon='clear', on_click=lambda: _clear_file_list(state, file_list_label, update_file_list_display)).props('flat dense round size=sm')
+
+        # Progress bar for file transcription
+        file_progress = ui.linear_progress(value=0, show_value=False).classes('w-full')
+        file_progress.set_visibility(False)
+
+        # Current file being processed
+        file_current_label = ui.label('').classes('text-xs text-blue-400 truncate w-full')
+
+        # Start/Stop file transcription buttons
+        with ui.row().classes('items-center w-full gap-1'):
+            file_start_btn = ui.button(
+                'Transcribe',
+                on_click=lambda: _start_file_transcription(state, bridge, file_start_btn, file_stop_btn, file_progress)
+            ).classes('flex-grow').props('dense color=positive')
+
+            file_stop_btn = ui.button(
+                'Stop',
+                on_click=lambda: _stop_file_transcription(state, bridge, file_start_btn, file_stop_btn, file_progress)
+            ).classes('w-16').props('dense color=negative')
+            file_stop_btn.set_enabled(False)
+
+        # Update file transcription UI periodically
+        def update_file_ui():
+            if state.file_transcription_active:
+                file_progress.set_visibility(True)
+                file_progress.value = state.file_transcription_progress / 100.0
+                file_current_label.text = f"Processing: {state.file_transcription_current_file}" if state.file_transcription_current_file else ""
+                file_start_btn.set_enabled(False)
+                file_stop_btn.set_enabled(True)
+            else:
+                file_progress.set_visibility(state.file_transcription_progress > 0 and state.file_transcription_progress < 100)
+                file_current_label.text = ""
+                file_start_btn.set_enabled(len(state.file_transcription_paths) > 0)
+                file_stop_btn.set_enabled(False)
+
+        ui.timer(0.2, update_file_ui)
+
+        ui.separator().classes('my-1')
+
         # === TOGGLE TEXT BUTTON ===
         toggle_btn = ui.button(
             'Show Text ▶' if not state.text_visible else 'Hide Text ◀',
@@ -543,3 +643,35 @@ def _set_controls_enabled(controls, enabled: bool):
                     ctrl.props(remove='disable')
                 else:
                     ctrl.props('disable')
+
+
+def _clear_file_list(state: AppState, file_list_label, update_fn):
+    """Clear the file transcription list."""
+    state.file_transcription_paths = []
+    update_fn()
+    ui.notify("File list cleared")
+
+
+def _start_file_transcription(state: AppState, bridge: ProcessingBridge, start_btn, stop_btn, progress):
+    """Start file transcription."""
+    if not state.file_transcription_paths:
+        ui.notify("No files selected", type='warning')
+        return
+
+    if state.is_recording:
+        ui.notify("Stop microphone recording first", type='warning')
+        return
+
+    bridge.start_file_transcription(state.file_transcription_paths)
+    start_btn.set_enabled(False)
+    stop_btn.set_enabled(True)
+    progress.set_visibility(True)
+    ui.notify(f"Starting transcription of {len(state.file_transcription_paths)} file(s)")
+
+
+def _stop_file_transcription(state: AppState, bridge: ProcessingBridge, start_btn, stop_btn, progress):
+    """Stop file transcription."""
+    bridge.stop_file_transcription()
+    start_btn.set_enabled(True)
+    stop_btn.set_enabled(False)
+    ui.notify("File transcription stopped")

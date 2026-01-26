@@ -4,10 +4,11 @@ from core_parts.paragraph_detector import ParagraphDetector
 from core_parts.audio_devices import (
     TARGET_SAMPLE_RATE, SAMPLE_WIDTH, CHUNK_DURATION,
     get_preferred_hostapi_index, get_mic_names, get_default_device_index,
-    get_mic_index, get_device_info, audio_to_wav_bytes, resample_to_mono_16k
+    get_mic_index, get_device_info, audio_to_wav_bytes, resample_to_mono_16k,
+    load_audio_file, get_audio_files_from_directory, is_audio_file
 )
 from core_parts.processing import (
-    translate, parse_ai_proofread_translate, ai_translate, proc
+    translate, parse_ai_proofread_translate, ai_translate, proc, proc_file
 )
 
 # Re-export constants

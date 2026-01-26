@@ -37,9 +37,16 @@ class ProcessingBridge:
 
         # Polling timer
         self.poll_timer = None
+        self._file_poll_timer = None  # File transcription polling timer
 
         # AI processor reference
         self.ai_processor = None
+
+        # File transcription control
+        self._file_ready = [None]
+        self._file_error = [None]
+        self._file_progress = [0]
+        self._file_current = [""]
 
         # TTS session tracking
         self.tts_controller = None
@@ -630,3 +637,156 @@ class ProcessingBridge:
         self._whisper_committed = ""
         self._ai_committed = ""
         self._translation_committed = ""
+
+    # === FILE TRANSCRIPTION METHODS ===
+
+    def start_file_transcription(self, file_paths: list):
+        """Start transcription of audio files.
+
+        Args:
+            file_paths: List of audio file paths to transcribe
+        """
+        if self.state.file_transcription_active or self.state.is_recording:
+            return
+
+        if not file_paths:
+            self.state.error_message = "No audio files selected"
+            return
+
+        # Reset state
+        self.state.file_transcription_mode = True
+        self.state.file_transcription_active = True
+        self.state.file_transcription_paths = file_paths
+        self.state.file_transcription_progress = 0
+        self.state.file_transcription_current_file = ""
+        self.state.error_message = None
+        self.state.status_message = f"Starting transcription of {len(file_paths)} file(s)..."
+
+        # Clear outputs
+        self.clear_outputs()
+
+        # Control flags for file transcription
+        self._file_ready = [False]
+        self._file_error = [None]
+        self._file_progress = [0]
+        self._file_current = [""]
+
+        # Get source language
+        source = None if self.state.source_language == "auto" else self.state.source_language
+
+        # Start file processing thread
+        threading.Thread(
+            target=core.proc_file,
+            args=(
+                file_paths,
+                self.state.model,
+                self.state.vad_enabled,
+                source,
+                self.ts_queue,
+                self._file_ready,
+                self.state.device,
+                self._file_error,
+                self._file_progress,
+                self._file_current,
+                self.state.para_detect_enabled
+            ),
+            daemon=True
+        ).start()
+
+        # Start polling
+        self._start_file_polling()
+
+    def stop_file_transcription(self):
+        """Stop file transcription if running."""
+        if not self.state.file_transcription_active:
+            return
+
+        self._file_ready[0] = False
+        self.state.status_message = "Stopping..."
+
+        # Stop polling
+        if self._file_poll_timer:
+            self._file_poll_timer.deactivate()
+            self._file_poll_timer = None
+
+        # Wait for thread to stop
+        threading.Thread(target=self._wait_for_file_stop, daemon=True).start()
+
+    def _wait_for_file_stop(self):
+        """Wait for file processing thread to stop."""
+        while self._file_ready[0] is not None:
+            time.sleep(0.1)
+
+        self.state.file_transcription_active = False
+        self.state.file_transcription_progress = 0
+        self.state.file_transcription_current_file = ""
+        self.state.status_message = "File transcription stopped"
+
+    def _start_file_polling(self):
+        """Start polling for file transcription results."""
+        self._file_poll_timer = ui.timer(0.1, self._poll_file_queues)
+
+    def _poll_file_queues(self):
+        """Poll result queues for file transcription."""
+        # Check if stopped
+        if self._file_ready[0] is None:
+            if self._file_poll_timer:
+                self._file_poll_timer.deactivate()
+                self._file_poll_timer = None
+            self.state.file_transcription_active = False
+            self.state.file_transcription_progress = 100
+            self.state.status_message = "File transcription complete"
+
+            # Check for errors
+            if self._file_error[0]:
+                self.state.error_message = str(self._file_error[0])
+                self.state.status_message = f"Error: {self._file_error[0]}"
+
+            return
+
+        # Update progress and current file
+        self.state.file_transcription_progress = self._file_progress[0]
+        self.state.file_transcription_current_file = self._file_current[0]
+        self.state.status_message = f"Processing: {self._file_current[0]}" if self._file_current[0] else "Processing..."
+
+        # Poll whisper queue for file transcription results
+        while self.ts_queue:
+            res = self.ts_queue.get()
+            if res:
+                done, curr = res
+                if done:
+                    # Append to whisper text
+                    self.state.whisper_text += done
+                    self._whisper_committed += done
+
+    def add_files_for_transcription(self, file_paths: list):
+        """Add files to the transcription queue.
+
+        Args:
+            file_paths: List of audio file paths
+        """
+        valid_files = [p for p in file_paths if core.is_audio_file(p)]
+        self.state.file_transcription_paths.extend(valid_files)
+        return len(valid_files)
+
+    def add_directory_for_transcription(self, directory_path: str, recursive: bool = False):
+        """Add all audio files from a directory.
+
+        Args:
+            directory_path: Path to directory
+            recursive: Search subdirectories
+
+        Returns:
+            Number of files added
+        """
+        try:
+            files = core.get_audio_files_from_directory(directory_path, recursive)
+            self.state.file_transcription_paths.extend(files)
+            return len(files)
+        except Exception as e:
+            self.state.error_message = f"Error scanning directory: {str(e)}"
+            return 0
+
+    def clear_file_list(self):
+        """Clear the list of files to transcribe."""
+        self.state.file_transcription_paths = []

@@ -65,6 +65,13 @@ class AppState:
     error_message: Optional[str] = None
     status_message: str = ""
 
+    # === File Transcription State ===
+    file_transcription_mode: bool = False  # True when transcribing from files
+    file_transcription_active: bool = False  # True when file transcription is running
+    file_transcription_paths: List[str] = field(default_factory=list)  # List of file paths to transcribe
+    file_transcription_progress: int = 0  # Progress 0-100
+    file_transcription_current_file: str = ""  # Currently processing file name
+
     # === Text Buffers ===
     whisper_text: str = ""
     ai_text: str = ""

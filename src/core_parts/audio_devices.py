@@ -1,7 +1,9 @@
 import io
+import os
 import wave
 import numpy as np
 import sounddevice as sd
+import soundfile as sf
 
 # Audio settings - Whisper expects 16kHz mono
 TARGET_SAMPLE_RATE = 16000
@@ -155,3 +157,86 @@ def resample_to_mono_16k(data, orig_rate, orig_channels):
     # Convert back to int16
     audio = (audio * 32768.0).clip(-32768, 32767).astype(np.int16)
     return audio.tobytes()
+
+
+def load_audio_file(file_path: str) -> tuple:
+    """
+    Load an audio file and return audio data ready for Whisper.
+
+    Supports: WAV, MP3, FLAC, OGG, M4A, and other formats supported by soundfile/libsndfile.
+
+    Args:
+        file_path: Path to the audio file
+
+    Returns:
+        tuple: (audio_data_bytes, sample_rate, duration_seconds)
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file format is not supported
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+    try:
+        # Read audio file using soundfile (supports many formats)
+        audio_data, sample_rate = sf.read(file_path, dtype='float32')
+
+        # Get number of channels
+        if len(audio_data.shape) == 1:
+            channels = 1
+        else:
+            channels = audio_data.shape[1]
+
+        # Calculate duration
+        duration = len(audio_data) / sample_rate
+
+        # Convert to int16
+        audio_int16 = (audio_data * 32768.0).clip(-32768, 32767).astype(np.int16)
+
+        # Convert to mono 16kHz for Whisper
+        mono_16k = resample_to_mono_16k(audio_int16, sample_rate, channels)
+
+        return mono_16k, TARGET_SAMPLE_RATE, duration
+
+    except Exception as e:
+        raise ValueError(f"Failed to load audio file: {str(e)}")
+
+
+def get_audio_files_from_directory(directory_path: str, recursive: bool = False) -> list:
+    """
+    Get all audio files from a directory.
+
+    Args:
+        directory_path: Path to directory
+        recursive: Whether to search subdirectories
+
+    Returns:
+        List of audio file paths
+    """
+    audio_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac', '.wma', '.opus'}
+    audio_files = []
+
+    if not os.path.isdir(directory_path):
+        raise ValueError(f"Not a directory: {directory_path}")
+
+    if recursive:
+        for root, dirs, files in os.walk(directory_path):
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in audio_extensions:
+                    audio_files.append(os.path.join(root, file))
+    else:
+        for file in os.listdir(directory_path):
+            ext = os.path.splitext(file)[1].lower()
+            if ext in audio_extensions:
+                audio_files.append(os.path.join(directory_path, file))
+
+    return sorted(audio_files)
+
+
+def is_audio_file(file_path: str) -> bool:
+    """Check if a file is a supported audio file based on extension."""
+    audio_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac', '.wma', '.opus'}
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext in audio_extensions
