@@ -123,46 +123,45 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 duration_label.text = ''
 
         # File upload for multiple files
-        def on_file_upload(e):
-            """Handle file upload for transcription."""
+        async def on_add_files_click():
+            """Handle file selection using native dialog - no copying."""
             try:
-                import os
-                from pathlib import Path
+                from nicegui import run
+                import tkinter as tk
+                from tkinter import filedialog
 
-                # Create uploads directory if needed
-                uploads_dir = Path("uploads")
-                uploads_dir.mkdir(exist_ok=True)
+                # Run file dialog in executor to avoid blocking
+                def pick_files():
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.attributes('-topmost', True)
+                    files = filedialog.askopenfilenames(
+                        title="Select Audio Files",
+                        filetypes=[
+                            ("Audio files", "*.mp3 *.wav *.flac *.ogg *.m4a *.wma *.aac *.opus"),
+                            ("All files", "*.*")
+                        ]
+                    )
+                    root.destroy()
+                    return files
 
-                # Read and save uploaded file
-                filename = Path(e.name).name
-                permanent_path = uploads_dir / filename
+                file_paths = await run.io_bound(pick_files)
 
-                with open(e.name, 'rb') as f:
-                    content = f.read()
-
-                with open(permanent_path, 'wb') as f:
-                    f.write(content)
-
-                # Add to transcription list
-                if core.is_audio_file(str(permanent_path)):
-                    state.file_transcription_paths.append(str(permanent_path))
+                if file_paths:
+                    added = 0
+                    for file_path in file_paths:
+                        if core.is_audio_file(file_path):
+                            if file_path not in state.file_transcription_paths:
+                                state.file_transcription_paths.append(file_path)
+                                added += 1
                     update_file_list_display()
-                    ui.notify(f"Added: {filename}", type='positive')
-                else:
-                    ui.notify(f"Not an audio file: {filename}", type='warning')
+                    if added > 0:
+                        ui.notify(f"Added {added} file(s)", type='positive')
             except Exception as ex:
                 ui.notify(f"Error: {ex}", type='negative')
 
         with ui.row().classes('items-center w-full gap-1'):
-            # Hidden file upload
-            file_upload = ui.upload(
-                on_upload=on_file_upload,
-                auto_upload=True,
-                max_file_size=500_000_000,  # 500MB
-                multiple=True
-            ).props('accept=audio/*').classes('hidden')
-
-            ui.button('Add Files', on_click=lambda: file_upload.run_method('pickFiles')).classes('flex-grow').props('dense')
+            ui.button('Add Files', on_click=on_add_files_click).classes('flex-grow').props('dense')
             ui.button(icon='clear', on_click=lambda: _clear_file_list(state, bridge, file_list_label, update_file_list_display)).props('flat dense round size=sm')
 
         # Duration display
