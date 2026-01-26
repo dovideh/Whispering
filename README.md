@@ -1,6 +1,6 @@
 # Whispering 🎙️
 
-**Version 1.2**
+**Version 1.2.3**
 
 Real-time speech-to-text application with AI-powered translation, proofreading, and voice cloning.
 
@@ -10,6 +10,7 @@ Whispering combines [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 
 
 ###  Transcription & Translation
 - **Real-time Transcription**: Fast and accurate speech-to-text using Whisper models.
+- **File Transcription**: Transcribe audio files (MP3, WAV, FLAC, M4A, OGG) with time range selection.
 - **Live Translation**: Translate speech to 100+ languages instantly.
 - **Auto-Type**: Dictate directly into any application (Word, Browser, IDE, Discord).
 - **Smart Formatting**: Paragraph detection and automatic punctuation.
@@ -115,6 +116,7 @@ The core dependencies are installed automatically by `install.sh`, but include:
 - `faster-whisper`: Speech recognition engine.
 - `nicegui`: Modern web-based UI framework.
 - `sounddevice`: Low-level audio input.
+- `pydub`: MP3 and other audio format support.
 - `pywebview` & `PyQt6`: For running as a native desktop window.
 - `pyautogui`: For the Auto-Type feature.
 
@@ -138,6 +140,23 @@ Then select "pipewire" as your input device in Whispering.
 Use `qpwgraph` for visual JACK-style audio routing.
 
 ## Changelog
+
+### Version 1.2.3
+**New Features:**
+- **File Transcription**: Transcribe audio files (MP3, WAV, FLAC, OGG, M4A, etc.)
+  - Single file, multiple files, or entire directory selection
+  - Native file dialog using PyQt6
+  - Time range selection (start/end time) for partial transcription
+  - Audio playback with play/pause toggle and position scrubbing
+  - Periodic auto-save during long file transcriptions
+  - Crash recovery support for file transcription sessions
+- **AI/TTS Status Indicators**: Visual indicators on the main panel showing when AI (green) or TTS (green) are enabled
+- **MP3/M4A Support**: Added pydub fallback for audio formats not supported by libsndfile
+
+**Improvements:**
+- Play button now toggles play/pause and updates playback position
+- File transcription uses dedicated queue to prevent result merging
+- Better error handling for unsupported audio formats
 
 ### Version 1.2
 **Improvements:**
