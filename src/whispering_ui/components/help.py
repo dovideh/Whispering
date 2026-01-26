@@ -74,6 +74,22 @@ See AI_SETUP.md for details.""",
 - Max file size: 500MB per file
 - Multiple files can be added and processed sequentially
 
+**Time Range:** Transcribe specific portion of audio
+- **Start:** Enter start time (M:SS or H:MM:SS)
+- **End:** Enter end time or "end" for full file
+- **Play ▶:** Preview audio from start position
+- **Stop ■:** Stop audio preview
+
+**Save Indicator:** Shows periodic save status
+- Format: "Saved HH:MM:SS: ...last words"
+- Saves after each paragraph or every 30 seconds
+- Data saved to recovery file for crash protection
+
+**Crash Recovery:** If program crashes during transcription
+- Yellow banner shows "Resume from X:XX"
+- **Resume:** Continue from last saved position
+- **Discard:** Start fresh, ignore recovery data
+
 **Transcribe:** Start processing the selected files
 - Uses same model settings as microphone transcription
 - Progress shown with percentage and current file name
@@ -96,7 +112,8 @@ See AI_SETUP.md for details.""",
 - Stop microphone recording before file transcription
 - Large files may take longer depending on model size
 - VAD helps filter silent sections
-- Paragraph detection adds natural line breaks""",
+- Paragraph detection adds natural line breaks
+- Use time range to transcribe specific sections""",
 
     "logging": """**Save logs:** Save session data to structured log files
 

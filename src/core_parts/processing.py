@@ -477,7 +477,7 @@ def proc(index, model, vad, memory, patience, timeout, prompt, source, target, t
         ready[0] = None
 
 
-def proc_file(file_paths, model, vad, source, tsres_queue, ready, device="cpu", error=None, progress=None, current_file=None, para_detect=True, para_threshold_std=1.5, para_min_pause=0.8, para_max_chars=500, para_max_words=100):
+def proc_file(file_paths, model, vad, source, tsres_queue, ready, device="cpu", error=None, progress=None, current_file=None, para_detect=True, para_threshold_std=1.5, para_min_pause=0.8, para_max_chars=500, para_max_words=100, start_time=0.0, end_time=None, save_queue=None, position_tracker=None):
     """
     Process audio files for transcription (batch mode).
 
@@ -497,11 +497,24 @@ def proc_file(file_paths, model, vad, source, tsres_queue, ready, device="cpu", 
         para_min_pause: Minimum pause for paragraph break
         para_max_chars: Max characters before forced paragraph break
         para_max_words: Max words before forced paragraph break
+        start_time: Start timestamp in seconds (default: 0.0)
+        end_time: End timestamp in seconds (default: None = end of file)
+        save_queue: Queue for save notifications (file_path, position, preview_text, timestamp)
+        position_tracker: Container for current position [float] for crash recovery
 
     Output Queue Format:
         - (done_text, "") for each completed file
         - None when all files are processed
+
+    Save Queue Format:
+        - (file_path, position_seconds, preview_text, timestamp_str) for each save
+        - None when processing ends
     """
+    import os
+    import json
+    from datetime import datetime
+    from pathlib import Path
+
     # Create paragraph detector if enabled
     para_detector = ParagraphDetector(
         threshold_std=para_threshold_std,
@@ -510,12 +523,52 @@ def proc_file(file_paths, model, vad, source, tsres_queue, ready, device="cpu", 
         max_words=para_max_words
     ) if para_detect else None
 
+    # Recovery file path
+    recovery_dir = Path("logs/file_recovery")
+    recovery_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_recovery_state(file_path, position, text_so_far, file_index):
+        """Save current state for crash recovery."""
+        recovery_file = recovery_dir / "recovery_state.json"
+        state = {
+            "file_path": file_path,
+            "file_index": file_index,
+            "position": position,
+            "text_so_far": text_so_far,
+            "timestamp": datetime.now().isoformat(),
+            "model": model,
+            "source": source,
+            "vad": vad
+        }
+        try:
+            with open(recovery_file, 'w') as f:
+                json.dump(state, f)
+        except Exception:
+            pass  # Don't fail transcription due to save error
+
+    def get_preview_text(text, max_words=5):
+        """Get last few words as preview."""
+        words = text.strip().split()
+        if len(words) <= max_words:
+            return text.strip()
+        return "..." + " ".join(words[-max_words:])
+
+    def format_time(seconds):
+        """Format seconds as HH:MM:SS."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        return f"{minutes}:{secs:02d}"
+
     try:
         # Load model
         whisper_model = WhisperModel(model, device=device)
         ready[0] = True
 
         total_files = len(file_paths)
+        accumulated_text = ""
 
         for file_index, file_path in enumerate(file_paths):
             # Check if stop requested
@@ -523,17 +576,21 @@ def proc_file(file_paths, model, vad, source, tsres_queue, ready, device="cpu", 
                 break
 
             # Update current file name
+            file_name = os.path.basename(file_path)
             if current_file is not None:
-                import os
-                current_file[0] = os.path.basename(file_path)
+                current_file[0] = file_name
 
             # Update progress
             if progress is not None:
                 progress[0] = int((file_index / total_files) * 100)
 
             try:
-                # Load audio file
-                audio_bytes, sample_rate, duration = load_audio_file(file_path)
+                # Load audio file with time range
+                audio_bytes, sample_rate, duration = load_audio_file(
+                    file_path,
+                    start_time=start_time if file_index == 0 else 0.0,
+                    end_time=end_time if file_index == 0 else None
+                )
 
                 # Create WAV in memory for Whisper
                 audio_file = audio_to_wav_bytes(audio_bytes, sample_rate, SAMPLE_WIDTH, channels=1)
@@ -545,37 +602,126 @@ def proc_file(file_paths, model, vad, source, tsres_queue, ready, device="cpu", 
                     vad_filter=vad
                 )
 
-                # Collect all segments
-                segments_list = list(segments)
-
-                # Process with paragraph detection if enabled
-                if para_detector and segments_list:
-                    transcription = para_detector.process_segments(segments_list, 0.0)
-                else:
-                    transcription = "".join(segment.text for segment in segments_list)
+                # Process segments incrementally for periodic saves
+                file_text = ""
+                last_save_position = start_time if file_index == 0 else 0.0
+                paragraph_count = 0
 
                 # Add file header
-                import os
-                file_name = os.path.basename(file_path)
-                result_text = f"\n--- {file_name} ---\n{transcription.strip()}\n"
+                header = f"\n--- {file_name} ---\n"
+                tsres_queue.put((header, ""))
+                accumulated_text += header
 
-                # Send result
-                tsres_queue.put((result_text, ""))
+                for segment in segments:
+                    # Check if stop requested
+                    if ready[0] is False or ready[0] is None:
+                        break
+
+                    segment_text = segment.text
+
+                    # Process with paragraph detection if enabled
+                    if para_detector:
+                        # Check if this segment ends a paragraph
+                        processed = para_detector.process_segments([segment], last_save_position)
+                        if '\n\n' in processed:
+                            paragraph_count += 1
+                    else:
+                        processed = segment_text
+
+                    file_text += processed
+                    accumulated_text += processed
+
+                    # Update position tracker
+                    current_position = (start_time if file_index == 0 else 0.0) + segment.end
+                    if position_tracker is not None:
+                        position_tracker[0] = current_position
+
+                    # Send incremental result
+                    tsres_queue.put((processed, ""))
+
+                    # Save after each paragraph or every 30 seconds of audio
+                    should_save = (
+                        (para_detector and '\n\n' in processed) or
+                        (segment.end - last_save_position >= 30)
+                    )
+
+                    if should_save and save_queue is not None:
+                        preview = get_preview_text(accumulated_text)
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        save_queue.put((file_path, current_position, preview, timestamp))
+
+                        # Save recovery state
+                        save_recovery_state(file_path, current_position, accumulated_text, file_index)
+                        last_save_position = segment.end
+
+                # Final save for this file
+                if save_queue is not None:
+                    preview = get_preview_text(accumulated_text)
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    save_queue.put((file_path, duration, preview, timestamp))
+                    save_recovery_state(file_path, duration, accumulated_text, file_index)
+
+                # Add trailing newline
+                tsres_queue.put(("\n", ""))
+                accumulated_text += "\n"
 
             except Exception as file_error:
                 # Send error for this file but continue with others
-                import os
-                file_name = os.path.basename(file_path)
                 error_text = f"\n--- {file_name} ---\n[Error: {str(file_error)}]\n"
                 tsres_queue.put((error_text, ""))
+                accumulated_text += error_text
 
         # Final progress update
         if progress is not None:
             progress[0] = 100
+
+        # Clear recovery file on successful completion
+        recovery_file = recovery_dir / "recovery_state.json"
+        if recovery_file.exists():
+            try:
+                recovery_file.unlink()
+            except Exception:
+                pass
 
     except Exception as e:
         if error is not None:
             error[0] = str(e)
     finally:
         tsres_queue.put(None)
+        if save_queue is not None:
+            save_queue.put(None)
         ready[0] = None
+
+
+def load_recovery_state():
+    """
+    Load crash recovery state if available.
+
+    Returns:
+        dict with recovery state or None if no recovery available
+    """
+    import json
+    from pathlib import Path
+
+    recovery_file = Path("logs/file_recovery/recovery_state.json")
+    if not recovery_file.exists():
+        return None
+
+    try:
+        with open(recovery_file, 'r') as f:
+            state = json.load(f)
+        return state
+    except Exception:
+        return None
+
+
+def clear_recovery_state():
+    """Clear the recovery state file."""
+    from pathlib import Path
+
+    recovery_file = Path("logs/file_recovery/recovery_state.json")
+    if recovery_file.exists():
+        try:
+            recovery_file.unlink()
+        except Exception:
+            pass

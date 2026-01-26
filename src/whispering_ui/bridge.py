@@ -662,6 +662,11 @@ class ProcessingBridge:
         self.state.error_message = None
         self.state.status_message = f"Starting transcription of {len(file_paths)} file(s)..."
 
+        # Reset save indicators
+        self.state.file_last_saved_text = ""
+        self.state.file_last_saved_time = ""
+        self.state.file_last_saved_position = 0.0
+
         # Clear outputs
         self.clear_outputs()
 
@@ -670,9 +675,17 @@ class ProcessingBridge:
         self._file_error = [None]
         self._file_progress = [0]
         self._file_current = [""]
+        self._file_position = [0.0]  # Current position tracker
+
+        # Save queue for periodic saves
+        self._save_queue = Queue(PairDeque())
 
         # Get source language
         source = None if self.state.source_language == "auto" else self.state.source_language
+
+        # Get time range
+        start_time = self.state.file_start_time
+        end_time = self.state.file_end_time
 
         # Start file processing thread
         threading.Thread(
@@ -690,8 +703,24 @@ class ProcessingBridge:
                 self._file_current,
                 self.state.para_detect_enabled
             ),
+            kwargs={
+                'start_time': start_time,
+                'end_time': end_time,
+                'save_queue': self._save_queue,
+                'position_tracker': self._file_position
+            },
             daemon=True
         ).start()
+
+        # Start logging if enabled
+        if self.state.log_enabled:
+            config = self._get_config_for_logging()
+            config['file_transcription'] = True
+            config['file_paths'] = file_paths
+            config['start_time'] = start_time
+            config['end_time'] = end_time
+            request_id = self.session_logger.start_session(config)
+            self.state.current_log_request_id = request_id
 
         # Start polling
         self._start_file_polling()
@@ -717,6 +746,17 @@ class ProcessingBridge:
         while self._file_ready[0] is not None:
             time.sleep(0.1)
 
+        # Finalize logging
+        if self.state.log_enabled and self.state.current_log_request_id:
+            outputs = {
+                "whisper_text": self.state.whisper_text,
+                "ai_text": self.state.ai_text,
+                "translation_text": self.state.translation_text
+            }
+            self.session_logger.update_session(outputs)
+            self.session_logger.finalize_session("manual")
+            self.state.current_log_request_id = None
+
         self.state.file_transcription_active = False
         self.state.file_transcription_progress = 0
         self.state.file_transcription_current_file = ""
@@ -736,6 +776,17 @@ class ProcessingBridge:
             self.state.file_transcription_active = False
             self.state.file_transcription_progress = 100
             self.state.status_message = "File transcription complete"
+
+            # Finalize logging
+            if self.state.log_enabled and self.state.current_log_request_id:
+                outputs = {
+                    "whisper_text": self.state.whisper_text,
+                    "ai_text": self.state.ai_text,
+                    "translation_text": self.state.translation_text
+                }
+                self.session_logger.update_session(outputs)
+                self.session_logger.finalize_session("completed")
+                self.state.current_log_request_id = None
 
             # Check for errors
             if self._file_error[0]:
@@ -758,6 +809,21 @@ class ProcessingBridge:
                     # Append to whisper text
                     self.state.whisper_text += done
                     self._whisper_committed += done
+
+                    # Update logging
+                    if self.state.log_enabled and self.state.current_log_request_id:
+                        outputs = {"whisper_text": self.state.whisper_text}
+                        self.session_logger.update_session(outputs)
+
+        # Poll save queue for save notifications
+        if hasattr(self, '_save_queue') and self._save_queue:
+            while self._save_queue:
+                save_info = self._save_queue.get()
+                if save_info:
+                    file_path, position, preview, timestamp = save_info
+                    self.state.file_last_saved_text = preview
+                    self.state.file_last_saved_time = timestamp
+                    self.state.file_last_saved_position = position
 
     def add_files_for_transcription(self, file_paths: list):
         """Add files to the transcription queue.
@@ -790,3 +856,138 @@ class ProcessingBridge:
     def clear_file_list(self):
         """Clear the list of files to transcribe."""
         self.state.file_transcription_paths = []
+        self.state.file_start_time = 0.0
+        self.state.file_end_time = None
+        self.state.file_duration = 0.0
+
+    def set_file_time_range(self, start_time: float, end_time: float = None):
+        """Set the time range for file transcription.
+
+        Args:
+            start_time: Start timestamp in seconds
+            end_time: End timestamp in seconds (None = end of file)
+        """
+        self.state.file_start_time = max(0.0, start_time)
+        self.state.file_end_time = end_time
+
+    def get_file_duration(self, file_path: str) -> float:
+        """Get the duration of an audio file.
+
+        Args:
+            file_path: Path to audio file
+
+        Returns:
+            Duration in seconds
+        """
+        try:
+            duration = core.get_audio_duration(file_path)
+            self.state.file_duration = duration
+            return duration
+        except Exception as e:
+            self.state.error_message = f"Error getting duration: {str(e)}"
+            return 0.0
+
+    def check_recovery_available(self) -> bool:
+        """Check if crash recovery data is available.
+
+        Returns:
+            True if recovery data exists
+        """
+        recovery_state = core.load_recovery_state()
+        if recovery_state:
+            self.state.file_recovery_available = True
+            self.state.file_recovery_path = recovery_state.get('file_path')
+            self.state.file_recovery_position = recovery_state.get('position', 0.0)
+            return True
+        self.state.file_recovery_available = False
+        return False
+
+    def load_recovery_state(self) -> dict:
+        """Load recovery state from crash.
+
+        Returns:
+            Recovery state dict or None
+        """
+        return core.load_recovery_state()
+
+    def apply_recovery(self):
+        """Apply recovery state - set start time to resume position."""
+        recovery_state = core.load_recovery_state()
+        if recovery_state:
+            # Set start time to resume from where we left off
+            self.state.file_start_time = recovery_state.get('position', 0.0)
+
+            # Load the file path if available
+            file_path = recovery_state.get('file_path')
+            if file_path and file_path not in self.state.file_transcription_paths:
+                self.state.file_transcription_paths = [file_path]
+
+            # Load previous text
+            text_so_far = recovery_state.get('text_so_far', '')
+            if text_so_far:
+                self.state.whisper_text = text_so_far
+                self._whisper_committed = text_so_far
+
+            # Clear recovery state
+            core.clear_recovery_state()
+            self.state.file_recovery_available = False
+
+            return True
+        return False
+
+    def discard_recovery(self):
+        """Discard recovery state."""
+        core.clear_recovery_state()
+        self.state.file_recovery_available = False
+        self.state.file_recovery_path = None
+        self.state.file_recovery_position = 0.0
+
+    def play_audio_file(self, file_path: str, start_time: float = 0.0):
+        """Play audio file for scrubbing/preview.
+
+        Args:
+            file_path: Path to audio file
+            start_time: Start position in seconds
+        """
+        if self.state.file_playback_active:
+            self.stop_audio_playback()
+
+        def play_audio():
+            try:
+                import sounddevice as sd
+                import soundfile as sf
+
+                # Read audio file
+                info = sf.info(file_path)
+                start_frame = int(start_time * info.samplerate)
+
+                data, samplerate = sf.read(file_path, start=start_frame)
+
+                self.state.file_playback_active = True
+                self.state.file_playback_position = start_time
+
+                # Play audio
+                sd.play(data, samplerate)
+
+                # Update position during playback
+                while sd.get_stream().active and self.state.file_playback_active:
+                    # Approximate current position
+                    time.sleep(0.1)
+                    self.state.file_playback_position += 0.1
+
+                sd.wait()
+                self.state.file_playback_active = False
+            except Exception as e:
+                print(f"Audio playback error: {e}")
+                self.state.file_playback_active = False
+
+        threading.Thread(target=play_audio, daemon=True).start()
+
+    def stop_audio_playback(self):
+        """Stop audio playback."""
+        try:
+            import sounddevice as sd
+            sd.stop()
+            self.state.file_playback_active = False
+        except Exception as e:
+            print(f"Stop playback error: {e}")

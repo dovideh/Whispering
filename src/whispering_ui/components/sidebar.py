@@ -79,6 +79,27 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
             ui.label('File Transcription').classes('font-bold text-sm')
             ui.button(icon='help_outline', on_click=lambda: show_help_dialog('file_transcription')).props('flat dense round size=sm')
 
+        # Recovery notification (shown if recovery data exists)
+        recovery_row = ui.row().classes('items-center w-full gap-1 bg-yellow-900 p-1 rounded')
+        recovery_row.set_visibility(False)
+
+        with recovery_row:
+            ui.icon('warning', color='yellow').classes('text-sm')
+            recovery_label = ui.label('Recovery available').classes('text-xs text-yellow-200 flex-grow')
+            ui.button('Resume', on_click=lambda: _apply_recovery(state, bridge, recovery_row, update_file_list_display)).props('dense size=sm color=warning')
+            ui.button('Discard', on_click=lambda: _discard_recovery(state, bridge, recovery_row)).props('dense size=sm flat')
+
+        # Check for recovery on load
+        def check_recovery():
+            if bridge.check_recovery_available():
+                recovery_state = bridge.load_recovery_state()
+                if recovery_state:
+                    pos = recovery_state.get('position', 0)
+                    recovery_label.text = f"Resume from {_format_time(pos)}"
+                    recovery_row.set_visibility(True)
+
+        ui.timer(0.5, check_recovery, once=True)
+
         # File selection controls
         file_list_label = ui.label('No files selected').classes('text-xs text-gray-400 truncate w-full')
 
@@ -87,11 +108,19 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
             count = len(state.file_transcription_paths)
             if count == 0:
                 file_list_label.text = 'No files selected'
+                duration_label.text = ''
             elif count == 1:
                 import os
                 file_list_label.text = os.path.basename(state.file_transcription_paths[0])
+                # Get and display duration
+                try:
+                    dur = bridge.get_file_duration(state.file_transcription_paths[0])
+                    duration_label.text = f'Duration: {_format_time(dur)}'
+                except Exception:
+                    duration_label.text = ''
             else:
                 file_list_label.text = f'{count} files selected'
+                duration_label.text = ''
 
         # File upload for multiple files
         def on_file_upload(e):
@@ -134,7 +163,37 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
             ).props('accept=audio/*').classes('hidden')
 
             ui.button('Add Files', on_click=lambda: file_upload.run_method('pickFiles')).classes('flex-grow').props('dense')
-            ui.button(icon='clear', on_click=lambda: _clear_file_list(state, file_list_label, update_file_list_display)).props('flat dense round size=sm')
+            ui.button(icon='clear', on_click=lambda: _clear_file_list(state, bridge, file_list_label, update_file_list_display)).props('flat dense round size=sm')
+
+        # Duration display
+        duration_label = ui.label('').classes('text-xs text-gray-400')
+
+        # Time range controls
+        with ui.row().classes('items-center w-full gap-1'):
+            ui.label('Range:').classes('text-xs w-12')
+
+            # Start time input
+            start_input = ui.input(
+                value='0:00',
+                on_change=lambda e: _parse_time_input(e.value, state, 'start')
+            ).classes('w-16').props('dense')
+            start_input.tooltip('Start time (M:SS or H:MM:SS)')
+
+            ui.label('→').classes('text-xs')
+
+            # End time input
+            end_input = ui.input(
+                value='end',
+                on_change=lambda e: _parse_time_input(e.value, state, 'end')
+            ).classes('w-16').props('dense')
+            end_input.tooltip('End time (M:SS, H:MM:SS, or "end")')
+
+            # Play button for scrubbing
+            play_btn = ui.button(icon='play_arrow', on_click=lambda: _play_audio_preview(state, bridge)).props('flat dense round size=sm')
+            play_btn.tooltip('Preview audio')
+
+            stop_play_btn = ui.button(icon='stop', on_click=lambda: bridge.stop_audio_playback()).props('flat dense round size=sm')
+            stop_play_btn.tooltip('Stop preview')
 
         # Progress bar for file transcription
         file_progress = ui.linear_progress(value=0, show_value=False).classes('w-full')
@@ -142,6 +201,9 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
         # Current file being processed
         file_current_label = ui.label('').classes('text-xs text-blue-400 truncate w-full')
+
+        # Save indicator - "Saved at: HH:MM:SS ...last words"
+        save_indicator = ui.label('').classes('text-xs text-green-400 truncate w-full')
 
         # Start/Stop file transcription buttons
         with ui.row().classes('items-center w-full gap-1'):
@@ -164,11 +226,25 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 file_current_label.text = f"Processing: {state.file_transcription_current_file}" if state.file_transcription_current_file else ""
                 file_start_btn.set_enabled(False)
                 file_stop_btn.set_enabled(True)
+
+                # Update save indicator
+                if state.file_last_saved_time:
+                    save_indicator.text = f"Saved {state.file_last_saved_time}: {state.file_last_saved_text}"
+                else:
+                    save_indicator.text = ""
             else:
                 file_progress.set_visibility(state.file_transcription_progress > 0 and state.file_transcription_progress < 100)
                 file_current_label.text = ""
                 file_start_btn.set_enabled(len(state.file_transcription_paths) > 0)
                 file_stop_btn.set_enabled(False)
+
+                # Keep save indicator visible after completion
+                if state.file_last_saved_time and state.file_transcription_progress == 100:
+                    save_indicator.text = f"Saved {state.file_last_saved_time}: {state.file_last_saved_text}"
+
+            # Update play button state
+            play_btn.set_enabled(len(state.file_transcription_paths) > 0 and not state.file_playback_active)
+            stop_play_btn.set_enabled(state.file_playback_active)
 
         ui.timer(0.2, update_file_ui)
 
@@ -645,9 +721,9 @@ def _set_controls_enabled(controls, enabled: bool):
                     ctrl.props('disable')
 
 
-def _clear_file_list(state: AppState, file_list_label, update_fn):
+def _clear_file_list(state: AppState, bridge: ProcessingBridge, file_list_label, update_fn):
     """Clear the file transcription list."""
-    state.file_transcription_paths = []
+    bridge.clear_file_list()
     update_fn()
     ui.notify("File list cleared")
 
@@ -675,3 +751,79 @@ def _stop_file_transcription(state: AppState, bridge: ProcessingBridge, start_bt
     start_btn.set_enabled(True)
     stop_btn.set_enabled(False)
     ui.notify("File transcription stopped")
+
+
+def _format_time(seconds: float) -> str:
+    """Format seconds as M:SS or H:MM:SS."""
+    if seconds is None:
+        return "end"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def _parse_time_input(value: str, state: AppState, field: str):
+    """Parse time input and update state.
+
+    Args:
+        value: Time string (M:SS, H:MM:SS, or 'end')
+        state: AppState to update
+        field: 'start' or 'end'
+    """
+    if not value or value.lower() == 'end':
+        if field == 'end':
+            state.file_end_time = None
+        return
+
+    try:
+        parts = value.split(':')
+        if len(parts) == 2:
+            # M:SS format
+            minutes, seconds = int(parts[0]), int(parts[1])
+            total_seconds = minutes * 60 + seconds
+        elif len(parts) == 3:
+            # H:MM:SS format
+            hours, minutes, seconds = int(parts[0]), int(parts[1]), int(parts[2])
+            total_seconds = hours * 3600 + minutes * 60 + seconds
+        else:
+            # Try parsing as seconds
+            total_seconds = float(value)
+
+        if field == 'start':
+            state.file_start_time = max(0.0, total_seconds)
+        else:
+            state.file_end_time = total_seconds if total_seconds > 0 else None
+    except (ValueError, IndexError):
+        pass  # Invalid format, ignore
+
+
+def _apply_recovery(state: AppState, bridge: ProcessingBridge, recovery_row, update_fn):
+    """Apply recovery state."""
+    if bridge.apply_recovery():
+        recovery_row.set_visibility(False)
+        update_fn()
+        ui.notify(f"Recovery applied - starting from {_format_time(state.file_start_time)}", type='positive')
+    else:
+        ui.notify("Failed to apply recovery", type='warning')
+
+
+def _discard_recovery(state: AppState, bridge: ProcessingBridge, recovery_row):
+    """Discard recovery state."""
+    bridge.discard_recovery()
+    recovery_row.set_visibility(False)
+    ui.notify("Recovery discarded")
+
+
+def _play_audio_preview(state: AppState, bridge: ProcessingBridge):
+    """Play audio file for preview/scrubbing."""
+    if not state.file_transcription_paths:
+        return
+
+    file_path = state.file_transcription_paths[0]
+    start_time = state.file_start_time
+
+    bridge.play_audio_file(file_path, start_time)
+    ui.notify(f"Playing from {_format_time(start_time)}")

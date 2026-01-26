@@ -159,7 +159,31 @@ def resample_to_mono_16k(data, orig_rate, orig_channels):
     return audio.tobytes()
 
 
-def load_audio_file(file_path: str) -> tuple:
+def get_audio_duration(file_path: str) -> float:
+    """
+    Get the duration of an audio file without loading all data.
+
+    Args:
+        file_path: Path to the audio file
+
+    Returns:
+        Duration in seconds
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file format is not supported
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+    try:
+        info = sf.info(file_path)
+        return info.duration
+    except Exception as e:
+        raise ValueError(f"Failed to get audio duration: {str(e)}")
+
+
+def load_audio_file(file_path: str, start_time: float = 0.0, end_time: float = None) -> tuple:
     """
     Load an audio file and return audio data ready for Whisper.
 
@@ -167,6 +191,8 @@ def load_audio_file(file_path: str) -> tuple:
 
     Args:
         file_path: Path to the audio file
+        start_time: Start timestamp in seconds (default: 0.0)
+        end_time: End timestamp in seconds (default: None = end of file)
 
     Returns:
         tuple: (audio_data_bytes, sample_rate, duration_seconds)
@@ -179,8 +205,26 @@ def load_audio_file(file_path: str) -> tuple:
         raise FileNotFoundError(f"Audio file not found: {file_path}")
 
     try:
-        # Read audio file using soundfile (supports many formats)
-        audio_data, sample_rate = sf.read(file_path, dtype='float32')
+        # Get file info first
+        info = sf.info(file_path)
+        file_sample_rate = info.samplerate
+        total_duration = info.duration
+
+        # Calculate frame positions
+        start_frame = int(start_time * file_sample_rate)
+        if end_time is not None:
+            end_frame = int(end_time * file_sample_rate)
+            frames_to_read = end_frame - start_frame
+        else:
+            frames_to_read = -1  # Read to end
+
+        # Read audio file using soundfile with time range
+        audio_data, sample_rate = sf.read(
+            file_path,
+            dtype='float32',
+            start=start_frame,
+            frames=frames_to_read if frames_to_read > 0 else None
+        )
 
         # Get number of channels
         if len(audio_data.shape) == 1:
@@ -188,7 +232,7 @@ def load_audio_file(file_path: str) -> tuple:
         else:
             channels = audio_data.shape[1]
 
-        # Calculate duration
+        # Calculate actual duration of loaded segment
         duration = len(audio_data) / sample_rate
 
         # Convert to int16
