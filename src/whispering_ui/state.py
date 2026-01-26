@@ -65,6 +65,30 @@ class AppState:
     error_message: Optional[str] = None
     status_message: str = ""
 
+    # === File Transcription State ===
+    file_transcription_mode: bool = False  # True when transcribing from files
+    file_transcription_active: bool = False  # True when file transcription is running
+    file_transcription_paths: List[str] = field(default_factory=list)  # List of file paths to transcribe
+    file_transcription_progress: int = 0  # Progress 0-100
+    file_transcription_current_file: str = ""  # Currently processing file name
+
+    # === File Transcription Time Range ===
+    file_start_time: float = 0.0  # Start timestamp in seconds
+    file_end_time: Optional[float] = None  # End timestamp (None = end of file)
+    file_duration: float = 0.0  # Total duration of current file
+
+    # === File Transcription Save/Recovery ===
+    file_last_saved_text: str = ""  # Last few words saved (preview)
+    file_last_saved_time: str = ""  # Timestamp of last save (HH:MM:SS)
+    file_last_saved_position: float = 0.0  # Position in seconds when last saved
+    file_recovery_available: bool = False  # True if recovery data exists
+    file_recovery_path: Optional[str] = None  # Path to file being recovered
+    file_recovery_position: float = 0.0  # Position to resume from after crash
+
+    # === File Playback State ===
+    file_playback_active: bool = False  # True when playing audio for scrubbing
+    file_playback_position: float = 0.0  # Current playback position in seconds
+
     # === Text Buffers ===
     whisper_text: str = ""
     ai_text: str = ""

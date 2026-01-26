@@ -1,7 +1,9 @@
 import io
+import os
 import wave
 import numpy as np
 import sounddevice as sd
+import soundfile as sf
 
 # Audio settings - Whisper expects 16kHz mono
 TARGET_SAMPLE_RATE = 16000
@@ -155,3 +157,191 @@ def resample_to_mono_16k(data, orig_rate, orig_channels):
     # Convert back to int16
     audio = (audio * 32768.0).clip(-32768, 32767).astype(np.int16)
     return audio.tobytes()
+
+
+def get_audio_duration(file_path: str) -> float:
+    """
+    Get the duration of an audio file without loading all data.
+
+    Args:
+        file_path: Path to the audio file
+
+    Returns:
+        Duration in seconds
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file format is not supported
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+    # Try soundfile first (works for WAV, FLAC, OGG, and MP3 if libsndfile has MP3 support)
+    try:
+        info = sf.info(file_path)
+        return info.duration
+    except Exception:
+        pass  # Fall through to pydub
+
+    # Fall back to pydub for formats soundfile can't handle
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_file(file_path)
+        return len(audio) / 1000.0  # Duration in seconds
+    except Exception as e:
+        raise ValueError(f"Failed to get audio duration: {str(e)}")
+
+
+def load_audio_file(file_path: str, start_time: float = 0.0, end_time: float = None) -> tuple:
+    """
+    Load an audio file and return audio data ready for Whisper.
+
+    Supports: WAV, MP3, FLAC, OGG, M4A, and other formats.
+    Uses soundfile for WAV/FLAC/OGG, falls back to pydub for MP3/M4A/etc.
+
+    Args:
+        file_path: Path to the audio file
+        start_time: Start timestamp in seconds (default: 0.0)
+        end_time: End timestamp in seconds (default: None = end of file)
+
+    Returns:
+        tuple: (audio_data_bytes, sample_rate, duration_seconds)
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        ValueError: If file format is not supported
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Audio file not found: {file_path}")
+
+    # Try soundfile first (works for WAV, FLAC, OGG, and MP3 if libsndfile has MP3 support)
+    try:
+        return _load_with_soundfile(file_path, start_time, end_time)
+    except Exception:
+        pass  # Fall through to pydub
+
+    # Fall back to pydub for formats soundfile can't handle
+    try:
+        return _load_with_pydub(file_path, start_time, end_time)
+    except Exception as e:
+        raise ValueError(f"Failed to load audio file: {str(e)}")
+
+
+def _load_with_soundfile(file_path: str, start_time: float, end_time: float) -> tuple:
+    """Load audio using soundfile (for WAV, FLAC, OGG)."""
+    # Get file info first
+    info = sf.info(file_path)
+    file_sample_rate = info.samplerate
+    total_duration = info.duration
+
+    # Calculate frame positions
+    start_frame = int(start_time * file_sample_rate)
+    if end_time is not None:
+        end_frame = int(end_time * file_sample_rate)
+        frames_to_read = end_frame - start_frame
+    else:
+        frames_to_read = -1  # Read to end
+
+    # Read audio file using soundfile with time range
+    audio_data, sample_rate = sf.read(
+        file_path,
+        dtype='float32',
+        start=start_frame,
+        frames=frames_to_read if frames_to_read > 0 else None
+    )
+
+    # Get number of channels
+    if len(audio_data.shape) == 1:
+        channels = 1
+    else:
+        channels = audio_data.shape[1]
+
+    # Calculate actual duration of loaded segment
+    duration = len(audio_data) / sample_rate
+
+    # Convert to int16
+    audio_int16 = (audio_data * 32768.0).clip(-32768, 32767).astype(np.int16)
+
+    # Convert to mono 16kHz for Whisper
+    mono_16k = resample_to_mono_16k(audio_int16, sample_rate, channels)
+
+    return mono_16k, TARGET_SAMPLE_RATE, duration
+
+
+def _load_with_pydub(file_path: str, start_time: float, end_time: float) -> tuple:
+    """Load audio using pydub (for MP3, M4A, AAC, etc.)."""
+    from pydub import AudioSegment
+
+    # Load audio file
+    audio = AudioSegment.from_file(file_path)
+
+    # Apply time range (pydub uses milliseconds)
+    start_ms = int(start_time * 1000)
+    if end_time is not None:
+        end_ms = int(end_time * 1000)
+        audio = audio[start_ms:end_ms]
+    else:
+        audio = audio[start_ms:]
+
+    # Get properties
+    sample_rate = audio.frame_rate
+    channels = audio.channels
+    duration = len(audio) / 1000.0  # Duration in seconds
+
+    # Convert to numpy array
+    samples = np.array(audio.get_array_of_samples())
+
+    # Handle stereo
+    if channels == 2:
+        samples = samples.reshape((-1, 2))
+
+    # Convert to int16 if needed (pydub usually returns int16 already)
+    if samples.dtype != np.int16:
+        if samples.dtype == np.float32 or samples.dtype == np.float64:
+            samples = (samples * 32768.0).clip(-32768, 32767).astype(np.int16)
+        else:
+            samples = samples.astype(np.int16)
+
+    # Convert to mono 16kHz for Whisper
+    mono_16k = resample_to_mono_16k(samples, sample_rate, channels)
+
+    return mono_16k, TARGET_SAMPLE_RATE, duration
+
+
+def get_audio_files_from_directory(directory_path: str, recursive: bool = False) -> list:
+    """
+    Get all audio files from a directory.
+
+    Args:
+        directory_path: Path to directory
+        recursive: Whether to search subdirectories
+
+    Returns:
+        List of audio file paths
+    """
+    audio_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac', '.wma', '.opus'}
+    audio_files = []
+
+    if not os.path.isdir(directory_path):
+        raise ValueError(f"Not a directory: {directory_path}")
+
+    if recursive:
+        for root, dirs, files in os.walk(directory_path):
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in audio_extensions:
+                    audio_files.append(os.path.join(root, file))
+    else:
+        for file in os.listdir(directory_path):
+            ext = os.path.splitext(file)[1].lower()
+            if ext in audio_extensions:
+                audio_files.append(os.path.join(directory_path, file))
+
+    return sorted(audio_files)
+
+
+def is_audio_file(file_path: str) -> bool:
+    """Check if a file is a supported audio file based on extension."""
+    audio_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a', '.aac', '.wma', '.opus'}
+    ext = os.path.splitext(file_path)[1].lower()
+    return ext in audio_extensions
