@@ -1,0 +1,198 @@
+# Voice Commands Configuration
+# Commands are detected using the isolation heuristic: if an entire Whisper segment
+# matches a command trigger (and nothing else), it's treated as a command.
+# If the trigger phrase appears mid-sentence, it passes through as normal text.
+
+# detection_mode: how commands are distinguished from regular speech
+#   "isolation" - command must be the entire segment (default, recommended)
+#   "prefix"    - command must start with a wake word (e.g., "command bold")
+detection_mode: isolation
+
+# prefix_word: wake word for prefix mode (ignored in isolation mode)
+prefix_word: "command"
+
+# Commands are organized by category.
+# Each command has:
+#   action: the action type to execute
+#   insert: (optional) text to insert for substitution-type actions
+#   triggers: dictionary of language code -> list of trigger phrases
+
+commands:
+  # === PUNCTUATION ===
+  comma:
+    action: insert_text
+    insert: ","
+    triggers:
+      en: ["comma"]
+      he: ["פסיק"]
+      fr: ["virgule"]
+      de: ["komma"]
+      es: ["coma"]
+
+  period:
+    action: insert_text
+    insert: "."
+    triggers:
+      en: ["period", "full stop", "dot"]
+      he: ["נקודה"]
+      fr: ["point"]
+      de: ["punkt"]
+      es: ["punto"]
+
+  question_mark:
+    action: insert_text
+    insert: "?"
+    triggers:
+      en: ["question mark"]
+      he: ["סימן שאלה"]
+      fr: ["point d'interrogation"]
+      de: ["fragezeichen"]
+      es: ["signo de interrogación"]
+
+  exclamation_mark:
+    action: insert_text
+    insert: "!"
+    triggers:
+      en: ["exclamation mark", "exclamation point"]
+      he: ["סימן קריאה"]
+      fr: ["point d'exclamation"]
+      de: ["ausrufezeichen"]
+      es: ["signo de exclamación"]
+
+  colon:
+    action: insert_text
+    insert: ":"
+    triggers:
+      en: ["colon"]
+      he: ["נקודתיים"]
+      fr: ["deux points"]
+      de: ["doppelpunkt"]
+      es: ["dos puntos"]
+
+  semicolon:
+    action: insert_text
+    insert: ";"
+    triggers:
+      en: ["semicolon", "semi colon"]
+      he: ["נקודה פסיק"]
+      fr: ["point virgule"]
+      de: ["semikolon"]
+      es: ["punto y coma"]
+
+  dash:
+    action: insert_text
+    insert: " — "
+    triggers:
+      en: ["dash", "em dash"]
+      he: ["מקף"]
+      fr: ["tiret"]
+      de: ["gedankenstrich"]
+      es: ["guion"]
+
+  ellipsis:
+    action: insert_text
+    insert: "..."
+    triggers:
+      en: ["ellipsis", "dot dot dot"]
+      he: ["שלוש נקודות"]
+      fr: ["points de suspension"]
+      de: ["auslassungspunkte"]
+      es: ["puntos suspensivos"]
+
+  open_quote:
+    action: insert_text
+    insert: "\""
+    triggers:
+      en: ["open quote", "begin quote", "quote"]
+      he: ["פתח מרכאות"]
+      fr: ["ouvrir guillemets"]
+
+  close_quote:
+    action: insert_text
+    insert: "\""
+    triggers:
+      en: ["close quote", "end quote", "unquote"]
+      he: ["סגור מרכאות"]
+      fr: ["fermer guillemets"]
+
+  open_parenthesis:
+    action: insert_text
+    insert: " ("
+    triggers:
+      en: ["open parenthesis", "open paren", "left paren"]
+      he: ["פתח סוגריים"]
+      fr: ["ouvrir parenthèse"]
+
+  close_parenthesis:
+    action: insert_text
+    insert: ") "
+    triggers:
+      en: ["close parenthesis", "close paren", "right paren"]
+      he: ["סגור סוגריים"]
+      fr: ["fermer parenthèse"]
+
+  # === WHITESPACE & STRUCTURE ===
+  new_line:
+    action: insert_text
+    insert: "\n"
+    triggers:
+      en: ["new line", "next line", "line break"]
+      he: ["שורה חדשה"]
+      fr: ["nouvelle ligne"]
+      de: ["neue zeile"]
+      es: ["nueva línea"]
+
+  new_paragraph:
+    action: insert_text
+    insert: "\n\n"
+    triggers:
+      en: ["new paragraph", "next paragraph", "paragraph"]
+      he: ["פסקה חדשה"]
+      fr: ["nouveau paragraphe"]
+      de: ["neuer absatz"]
+      es: ["nuevo párrafo"]
+
+  tab:
+    action: insert_text
+    insert: "\t"
+    triggers:
+      en: ["tab", "indent"]
+      he: ["טאב"]
+
+  # === FORMATTING (Phase 2 - stateful, but we define them now as no-ops) ===
+  # These are placeholders for Phase 2 implementation.
+  # In Phase 1, they will be recognized but produce a notification
+  # that formatting commands require rich text support.
+
+  # bold:
+  #   action: format_toggle
+  #   format: bold
+  #   triggers:
+  #     en: ["bold", "start bold", "make bold"]
+  #     he: ["מודגש", "הפוך למודגש"]
+  #   end_triggers:
+  #     en: ["stop bold", "end bold"]
+  #     he: ["הפסק מודגש"]
+
+  # italic:
+  #   action: format_toggle
+  #   format: italic
+  #   triggers:
+  #     en: ["italic", "italics", "start italic"]
+  #     he: ["נטוי"]
+  #   end_triggers:
+  #     en: ["stop italic", "end italic"]
+
+  # heading_1:
+  #   action: format_block
+  #   format: h1
+  #   triggers:
+  #     en: ["title one", "heading one", "title 1", "heading 1"]
+  #     he: ["כותרת אחת", "כותרת 1"]
+
+  # heading_2:
+  #   action: format_block
+  #   format: h2
+  #   triggers:
+  #     en: ["title two", "heading two", "title 2", "heading 2"]
+  #     he: ["כותרת שתיים", "כותרת 2"]

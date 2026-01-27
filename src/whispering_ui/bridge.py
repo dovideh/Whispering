@@ -15,6 +15,15 @@ from cmque import DataDeque, PairDeque, Queue
 from whispering_ui.state import AppState
 from session_logger import SessionLogger
 
+# Voice command modules
+try:
+    from commands_config import load_voice_commands_config
+    from command_detector import CommandDetector
+    from command_executor import CommandExecutor
+    VOICE_COMMANDS_AVAILABLE = True
+except ImportError:
+    VOICE_COMMANDS_AVAILABLE = False
+
 
 class ProcessingBridge:
     """
@@ -68,6 +77,72 @@ class ProcessingBridge:
         self._stop_requested = False
         self._auto_stopped = False
 
+        # Voice command detection
+        self.command_detector = None
+        self.command_executor = None
+        self._init_voice_commands()
+
+    def _init_voice_commands(self):
+        """Initialize voice command detection if available and enabled."""
+        if not VOICE_COMMANDS_AVAILABLE:
+            return
+
+        if not self.state.voice_commands_enabled:
+            self.command_detector = None
+            self.command_executor = None
+            return
+
+        try:
+            config = load_voice_commands_config()
+            if config:
+                # Determine language for trigger matching
+                lang = self.state.source_language
+                if lang == "auto" or not lang:
+                    lang = None  # Use all languages
+
+                self.command_detector = CommandDetector(config, language=lang)
+                self.command_executor = CommandExecutor()
+                print(f"[INFO] Voice commands initialized (mode={config.detection_mode}, lang={lang})", flush=True)
+            else:
+                self.command_detector = None
+                self.command_executor = None
+        except Exception as e:
+            print(f"[WARN] Voice commands init failed: {e}", flush=True)
+            self.command_detector = None
+            self.command_executor = None
+
+    def _detect_and_execute_command(self, text: str) -> str:
+        """
+        Check if text contains a voice command. If so, execute it and return
+        the replacement text (or empty string if the command consumed the text).
+        If no command, return the original text unchanged.
+
+        Args:
+            text: Finalized text segment from Whisper
+
+        Returns:
+            Text to use in the output buffer (original or substituted)
+        """
+        if not self.command_detector or not self.command_executor:
+            return text
+
+        if not text or not text.strip():
+            return text
+
+        result = self.command_detector.check(text)
+        if result is None:
+            return text
+
+        # Command detected — execute it
+        replacement = self.command_executor.execute(result)
+
+        if replacement is not None:
+            # The command produced replacement text (e.g., "comma" -> ",")
+            return replacement
+        else:
+            # The command consumed the text with no output (e.g., a keystroke action)
+            return ""
+
     def start_recording(self):
         """Start the recording and processing thread."""
         if self.state.is_recording:
@@ -92,6 +167,9 @@ class ProcessingBridge:
         # Start new TTS session
         self.tts_session_id = time.strftime("%Y%m%d_%H%M%S")
         self.tts_session_text = ""
+
+        # Re-initialize voice commands (language or settings may have changed)
+        self._init_voice_commands()
 
         # Initialize AI processor if enabled
         self.ai_processor = self._create_ai_processor()
@@ -440,6 +518,10 @@ class ProcessingBridge:
         """Accumulate finalized text and refresh preview outputs."""
         done_text = done_text or ""
         curr_text = curr_text or ""
+
+        # Voice command detection — only on whisper output (raw transcription)
+        if done_text and state_attr == 'whisper_text' and self.state.voice_commands_enabled:
+            done_text = self._detect_and_execute_command(done_text)
 
         committed_value = getattr(self, committed_attr)
         new_segment = ""

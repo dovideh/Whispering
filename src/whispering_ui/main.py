@@ -55,6 +55,7 @@ def main():
 
     state.auto_stop_enabled = settings.get("auto_stop_enabled", False)
     state.auto_stop_minutes = settings.get("auto_stop_minutes", 5)
+    state.voice_commands_enabled = settings.get("voice_commands_enabled", False)
 
     # Initialize microphone list
     try:
@@ -252,52 +253,18 @@ def main():
                 margin-bottom: 0.05rem;
             }
 
-            .output-panel .q-field {
-                flex: 1 1 0;
-                display: flex;
-                flex-direction: column;
-                min-height: 0;
-                margin: 0;
-                --q-field-padding: 0;
-                --q-field-label-padding: 0;
-            }
-
-            .output-panel .q-field__inner,
-            .output-panel .q-field__control,
-            .output-panel .q-field__native {
+            .output-panel .output-richtext {
                 flex: 1 1 0;
                 min-height: 0;
                 height: 100%;
                 width: 100%;
             }
 
-            .output-panel .q-field__bottom,
-            .output-panel .q-field__messages {
-                display: none;
-            }
-
-            .output-panel .q-field__control {
-                align-items: stretch;
-            }
-
-            .output-panel .q-field__native textarea {
-                height: 100% !important;
-                min-height: 0;
-                width: 100%;
-                resize: none;
-                padding: 0;
-                margin: 0;
-            }
-
-            .output-textarea {
+            .output-richtext {
                 flex: 1 1 0;
                 min-height: 0;
                 width: 100%;
                 height: 100%;
-                resize: none;
-                font-family: Menlo, Consolas, 'Liberation Mono', monospace;
-                padding-bottom: 0;
-                margin: 0;
             }
 
             .section-muted {
@@ -374,6 +341,7 @@ def main():
         settings.set("autotype", state.autotype_mode)
         settings.set("auto_stop_enabled", state.auto_stop_enabled)
         settings.set("auto_stop_minutes", state.auto_stop_minutes)
+        settings.set("voice_commands_enabled", state.voice_commands_enabled)
 
         if state.ai_available:
             settings.set("ai_enabled", state.ai_enabled)

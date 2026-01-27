@@ -298,6 +298,12 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
             ).classes('flex-grow').props('dense')
             auto_select.on_value_change(lambda e: setattr(state, 'autotype_mode', e.value))
 
+        # Voice commands
+        with ui.row().classes('items-center w-full gap-1'):
+            vcmd_cb = ui.checkbox('Voice Commands', value=state.voice_commands_enabled).props('dense')
+            vcmd_cb.on_value_change(lambda e: setattr(state, 'voice_commands_enabled', e.value))
+            vcmd_cb.tooltip('Detect voice commands (comma, period, new paragraph, etc.)')
+
         ui.separator().classes('my-1')
 
         # === TRANSLATION SECTION ===
