@@ -160,7 +160,7 @@ def create_output_panels(state: AppState, bridge=None):
                     )
 
                     with scroll_container:
-                        html_panel = ui.html('').classes('w-full')
+                        html_panel = ui.html('', sanitize=False).classes('w-full')
                         html_panels[config['key']] = html_panel
 
         def update_outputs():
