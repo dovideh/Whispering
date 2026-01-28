@@ -11,8 +11,70 @@ copy/cut via clipboard.
 import html
 import json
 import re
+import threading
 from nicegui import ui
 from whispering_ui.state import AppState
+
+
+def _copy_to_clipboard_native(text: str) -> bool:
+    """Copy text to system clipboard using native tools (not JS).
+    Uses the same approach as autotype.py for PyQt6 compatibility."""
+    import subprocess
+    import shutil
+
+    # Try xclip first (Linux X11)
+    if shutil.which("xclip"):
+        try:
+            proc = subprocess.Popen(
+                ["xclip", "-selection", "clipboard"],
+                stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            proc.communicate(input=text.encode("utf-8"))
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # Try xsel
+    if shutil.which("xsel"):
+        try:
+            proc = subprocess.Popen(
+                ["xsel", "--clipboard", "--input"],
+                stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            proc.communicate(input=text.encode("utf-8"))
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # Try wl-copy (Wayland)
+    if shutil.which("wl-copy"):
+        try:
+            proc = subprocess.Popen(
+                ["wl-copy"],
+                stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            proc.communicate(input=text.encode("utf-8"))
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # Fallback to tkinter
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        root.clipboard_clear()
+        root.clipboard_append(text)
+        root.update()
+        root.destroy()
+        return True
+    except Exception:
+        pass
+
+    return False
 
 
 def _text_to_html(text: str) -> str:
@@ -214,37 +276,25 @@ def create_output_panels(state: AppState, bridge=None):
 
 
 def _copy_text(text: str, label: str):
-    """Copy text to clipboard (thread-safe). Strips any HTML tags."""
-    # State stores plain text, so use it directly
+    """Copy text to system clipboard using native tools."""
     text_to_copy = str(text) if text else ""
 
     if not text_to_copy.strip():
         ui.notify(f'No {label} text to copy', type='warning')
         return
 
-    try:
-        # Escape the text safely for JavaScript
-        escaped_text = json.dumps(text_to_copy)
-        # Use async clipboard API with proper error handling
-        js_code = f'''
-        (async () => {{
-            try {{
-                await navigator.clipboard.writeText({escaped_text});
-            }} catch (err) {{
-                console.error('Clipboard write failed:', err);
-            }}
-        }})();
-        '''
-        ui.run_javascript(js_code)
-        ui.notify(f'Copied {label} text to clipboard', type='positive')
-    except Exception as e:
-        print(f"Clipboard error: {e}")
-        ui.notify(f'Clipboard error - try again', type='warning')
+    def do_copy():
+        success = _copy_to_clipboard_native(text_to_copy)
+        if not success:
+            print(f"Clipboard copy failed for {label}")
+
+    # Run clipboard operation in background thread to avoid blocking UI
+    threading.Thread(target=do_copy, daemon=True).start()
+    ui.notify(f'Copied {label} text to clipboard', type='positive')
 
 
 def _cut_text(state: AppState, text_type: str, panel_key: str, html_panels: dict):
-    """Cut text (copy and clear) - thread-safe."""
-    # Capture the text value immediately
+    """Cut text (copy to clipboard and clear panel)."""
     if text_type == 'whisper':
         text = str(state.whisper_text) if state.whisper_text else ""
     elif text_type == 'ai':
@@ -258,36 +308,26 @@ def _cut_text(state: AppState, text_type: str, panel_key: str, html_panels: dict
         ui.notify(f'No text to cut', type='warning')
         return
 
+    def do_copy():
+        success = _copy_to_clipboard_native(text)
+        if not success:
+            print(f"Clipboard cut failed for {text_type}")
+
+    threading.Thread(target=do_copy, daemon=True).start()
+
+    # Clear the text in state
+    if text_type == 'whisper':
+        state.whisper_text = ""
+    elif text_type == 'ai':
+        state.ai_text = ""
+    elif text_type == 'translation':
+        state.translation_text = ""
+
+    # Clear HTML panel
     try:
-        # Copy to clipboard
-        escaped_text = json.dumps(text)
-        js_code = f'''
-        (async () => {{
-            try {{
-                await navigator.clipboard.writeText({escaped_text});
-            }} catch (err) {{
-                console.error('Clipboard write failed:', err);
-            }}
-        }})();
-        '''
-        ui.run_javascript(js_code)
+        if panel_key in html_panels:
+            html_panels[panel_key].content = ""
+    except Exception:
+        pass
 
-        # Clear the text in state
-        if text_type == 'whisper':
-            state.whisper_text = ""
-        elif text_type == 'ai':
-            state.ai_text = ""
-        elif text_type == 'translation':
-            state.translation_text = ""
-
-        # Clear HTML panel
-        try:
-            if panel_key in html_panels:
-                html_panels[panel_key].content = ""
-        except Exception:
-            pass
-
-        ui.notify(f'Cut text to clipboard', type='positive')
-    except Exception as e:
-        print(f"Cut error: {e}")
-        ui.notify(f'Cut error - try again', type='warning')
+    ui.notify(f'Cut text to clipboard', type='positive')

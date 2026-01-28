@@ -520,8 +520,14 @@ class ProcessingBridge:
         curr_text = curr_text or ""
 
         # Voice command detection — only on whisper output (raw transcription)
-        if done_text and state_attr == 'whisper_text' and self.state.voice_commands_enabled:
-            done_text = self._detect_and_execute_command(done_text)
+        if state_attr == 'whisper_text' and self.state.voice_commands_enabled:
+            if done_text:
+                done_text = self._detect_and_execute_command(done_text)
+            # Suppress curr_text if it looks like a pending command word.
+            # This prevents "comma" flickering in the preview before finalization.
+            if curr_text and self.command_detector:
+                if self.command_detector.check(curr_text) is not None:
+                    curr_text = ""
 
         committed_value = getattr(self, committed_attr)
         new_segment = ""
