@@ -119,26 +119,47 @@ class ChatterboxProvider(BaseTTSProvider):
         self.model_type = model_type
         self.sample_rate = 24000
 
+    def _load_model(self, device: str):
+        """Load Chatterbox model onto the given device."""
+        if self.model_type == "multilingual":
+            from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+            return ChatterboxMultilingualTTS.from_pretrained(device=device)
+        else:
+            from chatterbox.tts import ChatterboxTTS
+            return ChatterboxTTS.from_pretrained(device=device)
+
     def _ensure_initialized(self):
         if self._initialized:
             return
 
         try:
-            if self.device == "cuda":
-                # Prevent cuDNN errors by enabling benchmark mode and setting
-                # matmul precision for tensor cores
+            load_device = self.device
+            print(f"Loading ChatterboxTTS on {load_device}...")
+
+            if load_device == "cuda":
                 torch.backends.cudnn.enabled = True
                 torch.backends.cudnn.benchmark = True
                 torch.set_float32_matmul_precision("high")
 
-            if self.model_type == "multilingual":
-                from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-                print(f"Loading multilingual ChatterboxTTS on {self.device}...")
-                self.model = ChatterboxMultilingualTTS.from_pretrained(device=self.device)
-            else:
-                from chatterbox.tts import ChatterboxTTS
-                print(f"Loading ChatterboxTTS on {self.device}...")
-                self.model = ChatterboxTTS.from_pretrained(device=self.device)
+            try:
+                self.model = self._load_model(load_device)
+            except RuntimeError as cuda_err:
+                err_str = str(cuda_err).lower()
+                if load_device == "cuda" and ("cudnn" in err_str or "cuda" in err_str):
+                    # Retry 1: disable cuDNN (uses slower but compatible kernels)
+                    print(f"cuDNN error: {cuda_err}")
+                    print("Retrying with cuDNN disabled...")
+                    torch.backends.cudnn.enabled = False
+                    try:
+                        self.model = self._load_model("cuda")
+                    except RuntimeError:
+                        # Retry 2: load on CPU, then move to CUDA
+                        print("Still failing on CUDA. Loading on CPU first...")
+                        torch.backends.cudnn.enabled = True
+                        self.model = self._load_model("cpu")
+                        self.device = "cpu"
+                else:
+                    raise
 
             self._initialized = True
             print(f"ChatterboxTTS loaded on {self.device}")
@@ -150,13 +171,6 @@ class ChatterboxProvider(BaseTTSProvider):
                 "Or run: ./scripts/install.sh --tts"
             ) from e
         except RuntimeError as e:
-            error_str = str(e)
-            if "cuDNN" in error_str or "CUDA" in error_str:
-                raise RuntimeError(
-                    f"CUDA/cuDNN error loading ChatterboxTTS:\n{e}\n\n"
-                    "Try: torch.backends.cudnn.benchmark = True\n"
-                    "Or check that PyTorch CUDA version matches your GPU driver."
-                ) from e
             raise RuntimeError(f"Failed to load ChatterboxTTS: {e}") from e
 
     def synthesize(
@@ -178,13 +192,30 @@ class ChatterboxProvider(BaseTTSProvider):
         if not text.strip():
             raise ValueError("Cannot synthesize empty text")
 
-        audio = self.model.generate(
-            text=text,
-            audio_prompt_path=reference_audio_path,
-            exaggeration=exaggeration,
-            cfg_weight=cfg,
-            temperature=0.8,
-        )
+        try:
+            audio = self.model.generate(
+                text=text,
+                audio_prompt_path=reference_audio_path,
+                exaggeration=exaggeration,
+                cfg_weight=cfg,
+                temperature=0.8,
+            )
+        except RuntimeError as e:
+            err_str = str(e).lower()
+            if "cudnn" in err_str or "cuda" in err_str:
+                # cuDNN failed during inference — disable it and retry once
+                print(f"cuDNN error during synthesis: {e}")
+                print("Retrying with cuDNN disabled...")
+                torch.backends.cudnn.enabled = False
+                audio = self.model.generate(
+                    text=text,
+                    audio_prompt_path=reference_audio_path,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg,
+                    temperature=0.8,
+                )
+            else:
+                raise
 
         if isinstance(audio, torch.Tensor):
             audio = audio.cpu().numpy()
