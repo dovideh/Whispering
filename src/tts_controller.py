@@ -324,7 +324,11 @@ class TTSController:
             self._playback_thread.start()
 
     def _playback_loop(self):
-        """Background thread that processes the playback queue."""
+        """Background thread that processes the playback queue.
+
+        Batches all queued text segments into a single synthesis+playback
+        pass to eliminate choppy gaps between segments.
+        """
         import sounddevice as sd
 
         while not self._playback_stop.is_set():
@@ -338,6 +342,22 @@ class TTSController:
                 break
 
             text, also_save, file_format = item
+
+            # Drain any additional queued items and merge into one text block.
+            # This prevents choppy playback when many short segments arrive
+            # in rapid succession from the AI processor.
+            while True:
+                try:
+                    extra = self._playback_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if extra is None:
+                    break
+                extra_text, extra_save, extra_fmt = extra
+                text = text.rstrip() + " " + extra_text.lstrip()
+                also_save = also_save or extra_save
+                file_format = extra_fmt  # use latest format
+
             try:
                 self._is_playing = True
 
@@ -349,6 +369,9 @@ class TTSController:
                     continue
 
                 audio, sample_rate = result
+
+                if self._playback_stop.is_set():
+                    break
 
                 # Save to file if requested
                 if also_save:

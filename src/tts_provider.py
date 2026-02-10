@@ -124,6 +124,13 @@ class ChatterboxProvider(BaseTTSProvider):
             return
 
         try:
+            if self.device == "cuda":
+                # Prevent cuDNN errors by enabling benchmark mode and setting
+                # matmul precision for tensor cores
+                torch.backends.cudnn.enabled = True
+                torch.backends.cudnn.benchmark = True
+                torch.set_float32_matmul_precision("high")
+
             if self.model_type == "multilingual":
                 from chatterbox.mtl_tts import ChatterboxMultilingualTTS
                 print(f"Loading multilingual ChatterboxTTS on {self.device}...")
@@ -147,7 +154,8 @@ class ChatterboxProvider(BaseTTSProvider):
             if "cuDNN" in error_str or "CUDA" in error_str:
                 raise RuntimeError(
                     f"CUDA/cuDNN error loading ChatterboxTTS:\n{e}\n\n"
-                    "Check that PyTorch CUDA version matches your GPU driver."
+                    "Try: torch.backends.cudnn.benchmark = True\n"
+                    "Or check that PyTorch CUDA version matches your GPU driver."
                 ) from e
             raise RuntimeError(f"Failed to load ChatterboxTTS: {e}") from e
 
@@ -254,9 +262,10 @@ class Qwen3TTSProvider(BaseTTSProvider):
             print(f"Loading Qwen3-TTS ({model_name}) on {self.device}...")
 
             # Determine dtype and attention implementation
-            dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+            # Use torch_dtype (not dtype) so Flash Attention 2 sees the dtype
+            compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
-            kwargs["dtype"] = dtype
+            kwargs["torch_dtype"] = compute_dtype
 
             # flash-attn is required
             try:
@@ -298,9 +307,9 @@ class Qwen3TTSProvider(BaseTTSProvider):
             model_name = self._get_model_name(clone=True)
             print(f"Loading Qwen3-TTS clone model ({model_name})...")
 
-            dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+            compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
-            kwargs["dtype"] = dtype
+            kwargs["torch_dtype"] = compute_dtype
             kwargs["attn_implementation"] = "flash_attention_2"
 
             self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)

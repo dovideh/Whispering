@@ -276,6 +276,12 @@ class ProcessingBridge:
         self.ready[0] = False
         self.state.status_message = "Stopping..."
 
+        # Stop any in-flight TTS playback immediately
+        if self.tts_controller:
+            self.tts_controller.stop_playback()
+            self.state.tts_is_playing = False
+            self.state.tts_status_message = ""
+
         # Stop polling
         if self.poll_timer:
             self.poll_timer.deactivate()
