@@ -5,6 +5,7 @@ TTS Provider module with multi-backend support.
 Supports ChatterboxTTS and Qwen3-TTS with graceful fallback.
 """
 
+import builtins
 import ctypes
 import glob
 import os
@@ -404,11 +405,6 @@ class Qwen3TTSProvider(BaseTTSProvider):
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = compute_dtype
-            # Also pass torch_dtype — qwen_tts consumes `dtype` but
-            # transformers/Flash Attention 2 needs `torch_dtype` to avoid
-            # "attempting to use Flash Attention 2 without specifying a
-            # torch dtype" warnings and potential incorrect inference dtype.
-            kwargs["torch_dtype"] = compute_dtype
 
             # flash-attn is required
             try:
@@ -422,10 +418,19 @@ class Qwen3TTSProvider(BaseTTSProvider):
                     "Or use a pre-built wheel from https://github.com/mjun0812/flash-attention-prebuild-wheels/releases"
                 )
 
-            # Suppress qwen_tts deprecation warning about torch_dtype
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated")
+            # Suppress transformers Flash Attention dtype warning (emitted via
+            # logging, not warnings module) and qwen_tts deprecation prints.
+            import logging as _logging
+            _tf_logger = _logging.getLogger("transformers.modeling_utils")
+            _prev_level = _tf_logger.level
+            _tf_logger.setLevel(_logging.ERROR)
+            _old_print = builtins.print
+            builtins.print = lambda *a, **kw: None
+            try:
                 self.model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
+            finally:
+                _tf_logger.setLevel(_prev_level)
+                builtins.print = _old_print
             self._initialized = True
             tts_log(f"Qwen3-TTS loaded on {self.device}")
 
@@ -456,12 +461,19 @@ class Qwen3TTSProvider(BaseTTSProvider):
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = compute_dtype
-            kwargs["torch_dtype"] = compute_dtype
             kwargs["attn_implementation"] = "flash_attention_2"
 
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated")
+            import logging as _logging
+            _tf_logger = _logging.getLogger("transformers.modeling_utils")
+            _prev_level = _tf_logger.level
+            _tf_logger.setLevel(_logging.ERROR)
+            _old_print = builtins.print
+            builtins.print = lambda *a, **kw: None
+            try:
                 self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
+            finally:
+                _tf_logger.setLevel(_prev_level)
+                builtins.print = _old_print
             tts_log("Qwen3-TTS clone model loaded")
 
         except ImportError as e:
