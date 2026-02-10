@@ -49,7 +49,7 @@ cd src
 python -m whispering_ui.main
 ```
 
-## Key Differences from tkinter Version
+## Design Principles
 
 1. **Separation of Concerns**: State, logic, and UI are completely decoupled
 2. **Reactive Updates**: UI updates automatically when state changes
@@ -61,10 +61,3 @@ python -m whispering_ui.main
 
 - `nicegui>=1.4.0` - Modern UI framework
 - `pyperclip` - Clipboard operations
-
-## Migration Notes
-
-- The original `gui.py` used tkinter with tight coupling between UI and logic
-- This version maintains the same functionality but with clean separation
-- The `core.proc` thread interface remains unchanged
-- Settings persistence is maintained using the same `Settings` class

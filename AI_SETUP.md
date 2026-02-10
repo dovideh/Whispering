@@ -98,7 +98,7 @@ Testing translation mode...
 
 1. Start Whispering:
    ```bash
-   python gui.py
+   ./scripts/run.sh
    ```
 
 2. Configure transcription settings as usual (mic, model, etc.)
@@ -116,6 +116,13 @@ Testing translation mode...
    - Select **Model**: Choose your preferred AI model
 
 5. Click **Start** and begin speaking!
+
+### CLI Mode
+
+Use the `--ai` flag along with persona and model selection:
+```bash
+python src/tui.py --ai --ai-persona proofread --target es
+```
 
 ### How It Works
 
@@ -307,8 +314,9 @@ Variables you can use:
 
 To use traditional Google Translate instead:
 
-1. Simply uncheck the "AI" checkbox in the GUI
-2. The app will fall back to the original translation method
+1. In the GUI, simply uncheck the "AI" checkbox
+2. In the CLI, omit the `--ai` flag
+3. The app will fall back to the original translation method
 
 You can switch between AI and Google Translate at any time!
 

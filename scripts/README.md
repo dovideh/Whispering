@@ -4,34 +4,20 @@ This directory contains all launcher and utility scripts for Whispering.
 
 ## Launcher Scripts
 
-### NiceGUI Interface (New)
+### GUI (NiceGUI Interface)
+- **run.sh** - Default launcher for Whispering (NiceGUI)
 - **run_nicegui.sh** - Bash launcher for NiceGUI interface
 - **run_nicegui.py** - Python launcher for NiceGUI interface
 
 The NiceGUI interface provides a modern, modular UI with clean separation of concerns.
 
 ```bash
-# Bash launcher
-./scripts/run_nicegui.sh
-
-# Or Python launcher
-./scripts/run_nicegui.py
-```
-
-### Tkinter Interface (Legacy)
-- **run.sh** - Original Bash launcher for tkinter interface
-- **run_tkinter.sh** - Alternative Bash launcher for tkinter interface
-- **run_tkinter.py** - Python launcher for tkinter interface
-
-The tkinter interface is the original monolithic GUI.
-
-```bash
-# Original launcher
+# Default launcher
 ./scripts/run.sh
 
-# Or alternative launchers
-./scripts/run_tkinter.sh
-./scripts/run_tkinter.py
+# Or use the NiceGUI-specific launchers
+./scripts/run_nicegui.sh
+./scripts/run_nicegui.py
 ```
 
 ## Installation Scripts
