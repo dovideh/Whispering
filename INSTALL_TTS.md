@@ -26,14 +26,18 @@ Supports 10 languages (English, Chinese, Japanese, Korean, German, French, Russi
 # Activate your virtual environment first
 source .venv/bin/activate
 
-# Install Qwen3-TTS
+# Step 1: Install Qwen3-TTS
 pip install qwen-tts
 
-# Optional: faster inference with flash attention
-MAX_JOBS=4 pip install -U flash-attn --no-build-isolation
+# Step 2: Install flash-attn (REQUIRED - must install AFTER torch)
+# --no-build-isolation is needed because flash-attn needs torch at build time
+MAX_JOBS=4 pip install flash-attn --no-build-isolation
+
+# NOTE: Do NOT use "uv pip install flash-attn" - it will fail.
+# Use regular pip with --no-build-isolation instead.
 
 # Verify
-python -c "from qwen_tts import Qwen3TTSModel; print('Qwen3-TTS OK')"
+python -c "from qwen_tts import Qwen3TTSModel; import flash_attn; print('Qwen3-TTS OK')"
 ```
 
 ### Option B: Chatterbox TTS (ResembleAI)

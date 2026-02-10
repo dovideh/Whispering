@@ -27,6 +27,8 @@ resemble-perth>=1.0.1
 conformer>=0.3.2
 
 # Qwen3-TTS: pip install qwen-tts (installs its own deps)
+# flash-attn is required for Qwen3-TTS. Install AFTER torch:
+#   pip install flash-attn --no-build-isolation
 
 # Optional: for auto-type feature
 pyautogui

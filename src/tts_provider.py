@@ -36,9 +36,10 @@ def get_available_backends() -> dict[str, bool]:
     except (ImportError, ModuleNotFoundError, Exception):
         backends["chatterbox"] = False
 
-    # Check Qwen3-TTS - verify the model class is importable
+    # Check Qwen3-TTS - verify both the model class and flash-attn are importable
     try:
         from qwen_tts import Qwen3TTSModel  # noqa: F401
+        import flash_attn  # noqa: F401
         backends["qwen3"] = True
     except (ImportError, ModuleNotFoundError, Exception):
         backends["qwen3"] = False
@@ -239,23 +240,24 @@ class Qwen3TTSProvider(BaseTTSProvider):
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = dtype
 
-            # Try flash attention if available
+            # flash-attn is required for Qwen3-TTS
             try:
                 import flash_attn  # noqa: F401
                 kwargs["attn_implementation"] = "flash_attention_2"
             except ImportError:
-                pass
+                raise ImportError(
+                    "flash-attn is required for Qwen3-TTS but is not installed.\n"
+                    "Install with: pip install flash-attn --no-build-isolation\n"
+                    "(torch must be installed first)\n"
+                    "Or run: ./scripts/install.sh --tts=qwen3"
+                )
 
             self.model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             self._initialized = True
             print(f"Qwen3-TTS loaded on {self.device}")
 
         except ImportError as e:
-            raise ImportError(
-                "Qwen3-TTS is not installed.\n"
-                "Install with: pip install qwen-tts\n"
-                "Or run: ./scripts/install.sh --tts"
-            ) from e
+            raise ImportError(str(e)) from e
         except Exception as e:
             raise RuntimeError(f"Failed to load Qwen3-TTS: {e}") from e
 
@@ -266,6 +268,7 @@ class Qwen3TTSProvider(BaseTTSProvider):
 
         try:
             from qwen_tts import Qwen3TTSModel
+            import flash_attn  # noqa: F401
 
             model_name = self._get_model_name(clone=True)
             print(f"Loading Qwen3-TTS clone model ({model_name})...")
@@ -273,16 +276,16 @@ class Qwen3TTSProvider(BaseTTSProvider):
             dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = dtype
-
-            try:
-                import flash_attn  # noqa: F401
-                kwargs["attn_implementation"] = "flash_attention_2"
-            except ImportError:
-                pass
+            kwargs["attn_implementation"] = "flash_attention_2"
 
             self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             print("Qwen3-TTS clone model loaded")
 
+        except ImportError as e:
+            raise ImportError(
+                "flash-attn is required for Qwen3-TTS.\n"
+                "Install with: pip install flash-attn --no-build-isolation"
+            ) from e
         except Exception as e:
             raise RuntimeError(f"Failed to load Qwen3-TTS clone model: {e}") from e
 
