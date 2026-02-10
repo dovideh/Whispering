@@ -86,30 +86,75 @@ def main():
         state.ai_available = False
 
     # Check TTS availability
+    # Always show TTS section so user can see install instructions.
+    # tts_available=True means the TTS UI section is visible.
+    # tts_backends_available tracks which engines are actually installed.
     try:
+        from tts_provider import get_available_backends
         from tts_controller import TTSController
+
+        backends = get_available_backends()
+        state.tts_backends_available = backends
+        # Show TTS section whenever our modules load (always)
         state.tts_available = True
 
         # Load TTS settings
         state.tts_enabled = settings.get("tts_enabled", False)
+        state.tts_backend = settings.get("tts_backend", "chatterbox")
         state.tts_source = settings.get("tts_source", "whisper")
+        state.tts_auto_play = settings.get("tts_auto_play", True)
         state.tts_save_file = settings.get("tts_save_file", False)
         state.tts_format = settings.get("tts_format", "wav")
+        state.tts_qwen3_speaker = settings.get("tts_qwen3_speaker", "Ryan")
+        state.tts_qwen3_model_size = settings.get("tts_qwen3_model_size", "1.7B")
+        state.tts_kokoro_voice = settings.get("tts_kokoro_voice", "af_heart")
+
+        # If saved backend is not installed, fall back to first available
+        if not backends.get(state.tts_backend):
+            for name, avail in backends.items():
+                if avail:
+                    state.tts_backend = name
+                    break
+
+        # Print backend status
+        has_any = False
+        for name, avail in backends.items():
+            status = "available" if avail else "not installed"
+            print(f"  TTS backend {name}: {status}")
+            if avail:
+                has_any = True
+        if not has_any:
+            state.tts_enabled = False  # Don't auto-enable if nothing is installed
+            print("  No TTS backends installed.")
+            print("  Install with: ./scripts/install.sh --tts")
+            print("  Or manually: pip install chatterbox-tts --no-deps")
+            print("              pip install qwen-tts")
+            print("              pip install kokoro soundfile")
     except Exception as e:
         print(f"TTS features not available: {e}")
         state.tts_available = False
+        state.tts_backends_available = {}
 
     # Create processing bridge
     bridge = ProcessingBridge(state)
 
-    # Initialize TTS controller in bridge if available
-    if state.tts_available:
+    # Initialize TTS controller in bridge if any backend is available
+    if state.tts_available and any(state.tts_backends_available.values()):
         try:
             from tts_controller import TTSController
-            bridge.tts_controller = TTSController(device="auto", output_dir="tts_output")
+            bridge.tts_controller = TTSController(
+                device="auto",
+                output_dir="tts_output",
+                backend=state.tts_backend,
+                qwen3_model_size=state.tts_qwen3_model_size,
+                qwen3_speaker=state.tts_qwen3_speaker,
+                kokoro_voice=state.tts_kokoro_voice,
+            )
+            # Wire up status callbacks
+            bridge.tts_controller.on_progress = lambda msg: setattr(state, 'tts_status_message', msg)
+            bridge.tts_controller.on_error = lambda msg: setattr(state, 'tts_status_message', msg)
         except Exception as e:
             print(f"Failed to initialize TTS controller: {e}")
-            state.tts_available = False
 
     # === RECOVERY DIALOG ===
     # Check for crashed sessions and offer recovery
@@ -356,9 +401,14 @@ def main():
 
         if state.tts_available:
             settings.set("tts_enabled", state.tts_enabled)
+            settings.set("tts_backend", state.tts_backend)
             settings.set("tts_source", state.tts_source)
+            settings.set("tts_auto_play", state.tts_auto_play)
             settings.set("tts_save_file", state.tts_save_file)
             settings.set("tts_format", state.tts_format)
+            settings.set("tts_qwen3_speaker", state.tts_qwen3_speaker)
+            settings.set("tts_qwen3_model_size", state.tts_qwen3_model_size)
+            settings.set("tts_kokoro_voice", state.tts_kokoro_voice)
 
         settings.save()
 

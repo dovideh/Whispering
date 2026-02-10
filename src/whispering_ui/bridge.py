@@ -276,6 +276,12 @@ class ProcessingBridge:
         self.ready[0] = False
         self.state.status_message = "Stopping..."
 
+        # Stop any in-flight TTS playback immediately
+        if self.tts_controller:
+            self.tts_controller.stop_playback()
+            self.state.tts_is_playing = False
+            self.state.tts_status_message = ""
+
         # Stop polling
         if self.poll_timer:
             self.poll_timer.deactivate()
@@ -480,19 +486,29 @@ class ProcessingBridge:
     def _finalize_tts_session(self):
         """Finalize TTS session if TTS is enabled."""
         if not self.state.tts_enabled or not self.tts_session_text.strip():
+            self.tts_session_text = ""
             return
 
         if not self.tts_controller:
+            self.tts_session_text = ""
             return
 
-        if self.state.tts_save_file and self.tts_session_id:
+        # Tell the playback loop that no more text is coming so it can
+        # synthesize all accumulated segments in one pass.
+        if self.state.tts_auto_play:
+            self.tts_controller.flush_playback()
+
+        # If auto-play was on, segments were already played (and optionally saved)
+        # individually. Only save a combined session file if save is on
+        # and auto-play was off (meaning segments weren't saved yet).
+        if self.state.tts_save_file and not self.state.tts_auto_play and self.tts_session_id:
             try:
                 filename = f"tts_session_{self.tts_session_id}"
                 self.tts_controller.synthesize_to_file(
                     text=self.tts_session_text.strip(),
                     output_filename=filename,
                     file_format=self.state.tts_format,
-                    async_mode=True
+                    async_mode=True,
                 )
             except Exception as e:
                 print(f"TTS finalization error: {e}")
@@ -562,71 +578,56 @@ class ProcessingBridge:
             if is_qa_mode and tts_source == 'ai' and state_attr == 'ai_text':
                 # In Q&A mode, trigger TTS for complete AI response
                 if self.state.tts_enabled and self.state.tts_source == 'ai':
-                    self._trigger_qa_tts(new_segment)
+                    self._trigger_tts_playback(new_segment)
 
                 # Clear AI output after response is complete (keep whisper for context)
                 # We'll do this after TTS is done speaking
 
             elif tts_source and self.state.tts_enabled and self.state.tts_source == tts_source:
-                # Normal TTS mode (non-Q&A)
+                # Normal TTS mode - synthesize and play in real time
+                if self.state.tts_auto_play:
+                    self._trigger_tts_playback(new_segment)
+                # Also accumulate for session file save
                 self.tts_session_text += new_segment + " "
 
             if autotype_mode and self.state.autotype_mode == autotype_mode and new_segment.strip():
                 self._autotype_text(new_segment)
 
-    def _trigger_qa_tts(self, text: str):
-        """Trigger TTS synthesis for Q&A response and set up playback."""
+    def _trigger_tts_playback(self, text: str):
+        """Synthesize text and play it through speakers using the playback queue."""
         if not self.tts_controller or not text.strip():
             return
 
         try:
-            import time
-            # Generate unique filename for this Q&A response
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            filename = f"qa_response_{timestamp}"
+            self.state.tts_status_message = "Queued for playback..."
+            self.state.tts_is_playing = True
 
-            # Synthesize to file
-            output_path = self.tts_controller.synthesize_to_file(
+            # Use the controller's playback queue for sequential, non-blocking playback
+            self.tts_controller.synthesize_and_play(
                 text=text.strip(),
-                output_filename=filename,
+                also_save=self.state.tts_save_file,
                 file_format=self.state.tts_format,
-                async_mode=False  # Wait for completion
             )
-
-            if output_path:
-                # Store the audio file path for playback
-                self.state.tts_audio_file = output_path
-                self.state.tts_status_message = "Ready to play"
-
-                # Auto-play the audio
-                self._play_tts_audio(output_path)
         except Exception as e:
-            print(f"Q&A TTS error: {e}")
+            print(f"TTS playback error: {e}")
             self.state.tts_status_message = f"TTS error: {str(e)[:30]}"
+            self.state.tts_is_playing = False
 
     def _play_tts_audio(self, audio_path: str):
-        """Play TTS audio file in background thread and clear AI output when done."""
+        """Play a TTS audio file in background thread."""
         def play_audio():
             try:
                 import sounddevice as sd
                 import soundfile as sf
 
-                # Read audio file
                 data, samplerate = sf.read(audio_path)
 
-                # Update state
                 self.state.tts_is_playing = True
                 self.state.tts_status_message = "Playing..."
 
-                # Play audio (blocking in this thread)
                 sd.play(data, samplerate)
                 sd.wait()
 
-                # Clear AI output after playback in Q&A mode
-                self.state.ai_text = ""
-                self._ai_committed = ""
-
-                # Update state
                 self.state.tts_is_playing = False
                 self.state.tts_status_message = "Playback complete"
             except Exception as e:
@@ -634,7 +635,6 @@ class ProcessingBridge:
                 self.state.tts_status_message = f"Playback error: {str(e)[:30]}"
                 self.state.tts_is_playing = False
 
-        # Start playback in background thread
         threading.Thread(target=play_audio, daemon=True).start()
 
     def manual_ai_trigger(self):
@@ -652,8 +652,10 @@ class ProcessingBridge:
             self._play_tts_audio(self.state.tts_audio_file)
 
     def stop_qa_audio(self):
-        """Stop Q&A TTS audio playback."""
+        """Stop all TTS audio playback."""
         try:
+            if self.tts_controller:
+                self.tts_controller.stop_playback()
             import sounddevice as sd
             sd.stop()
             self.state.tts_is_playing = False

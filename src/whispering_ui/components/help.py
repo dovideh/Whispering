@@ -59,13 +59,21 @@ See AI_SETUP.md for details.""",
 
     "tts": """**Enable TTS:** Convert text to speech
 
-**Voice:** Browse=upload ref audio for cloning | Clear=default
+**Engine:** Chatterbox (voice cloning) | Qwen3-TTS (multilingual, 9 voices) | Kokoro (fast, 82M, 54 voices)
 
-**Save File:** Auto-save to tts_output/ with timestamp
+**Qwen3 Options:** Speaker (Ryan, Aiden, Vivian, etc.) | Size (0.6B lighter, 1.7B better)
+
+**Kokoro Options:** Voice (af_heart, am_michael, bf_emma, etc.) — prefix: a=US, b=UK, f/m=gender
+
+**Voice:** Browse=upload ref audio for cloning | Clear=default voice
+
+**Play:** Hear TTS output through speakers in real time
+
+**Save:** Auto-save audio files to tts_output/
 
 **Format:** WAV (lossless) | OGG (compressed)
 
-**Setup:** See INSTALL_TTS.md""",
+**Setup:** See INSTALL_TTS.md | Run: ./scripts/install.sh --tts""",
 
     "file_transcription": """**File Transcription:** Transcribe audio files (batch mode)
 
