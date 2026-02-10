@@ -1,11 +1,111 @@
 #!/usr/bin/env python3
 """
 Output Component
-Text display panels for Whisper, AI, and Translation output with Copy/Cut buttons
+Rich text display panels for Whisper, AI, and Translation output with Copy/Cut buttons.
+
+Panels render HTML content inside scrollable containers, supporting formatted text
+from voice commands (bold, italic, headings, etc.) while maintaining plain-text
+copy/cut via clipboard.
 """
 
+import html
+import json
+import re
+import threading
 from nicegui import ui
 from whispering_ui.state import AppState
+
+
+def _copy_to_clipboard_native(text: str) -> bool:
+    """Copy text to system clipboard using native tools (not JS).
+    Uses the same approach as autotype.py for PyQt6 compatibility."""
+    import subprocess
+    import shutil
+
+    # Try xclip first (Linux X11)
+    if shutil.which("xclip"):
+        try:
+            proc = subprocess.Popen(
+                ["xclip", "-selection", "clipboard"],
+                stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            proc.communicate(input=text.encode("utf-8"))
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # Try xsel
+    if shutil.which("xsel"):
+        try:
+            proc = subprocess.Popen(
+                ["xsel", "--clipboard", "--input"],
+                stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            proc.communicate(input=text.encode("utf-8"))
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # Try wl-copy (Wayland)
+    if shutil.which("wl-copy"):
+        try:
+            proc = subprocess.Popen(
+                ["wl-copy"],
+                stdin=subprocess.PIPE, stderr=subprocess.DEVNULL
+            )
+            proc.communicate(input=text.encode("utf-8"))
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            pass
+
+    # Fallback to tkinter
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        root.clipboard_clear()
+        root.clipboard_append(text)
+        root.update()
+        root.destroy()
+        return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _text_to_html(text: str) -> str:
+    """
+    Convert plain text to safe HTML for display.
+    Escapes HTML entities, then converts newlines to <br> tags.
+    Preserves any existing HTML tags that were inserted by the command system.
+    """
+    if not text:
+        return ""
+
+    # The text may already contain HTML tags from the command executor (Phase 2).
+    # For Phase 1, all text is plain so we escape everything.
+    # We escape & < > but preserve newlines as <br>.
+    escaped = html.escape(text)
+    # Convert \n to <br>
+    escaped = escaped.replace("\n", "<br>")
+    # Convert \t to spaces for display
+    escaped = escaped.replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
+    return escaped
+
+
+def _html_to_plain(html_text: str) -> str:
+    """
+    Strip HTML tags from text for clipboard operations.
+    Converts <br> back to newlines and removes all other tags.
+    """
+    if not html_text:
+        return ""
+    # The state stores plain text, so just return it directly
+    return html_text
 
 
 def create_output_panels(state: AppState, bridge=None):
@@ -52,9 +152,11 @@ def create_output_panels(state: AppState, bridge=None):
         },
     ]
 
-    textareas = {}
+    html_panels = {}
     count_labels = {}
     title_labels = {}
+    # Track previous text values to avoid redundant DOM updates
+    _prev_values = {cfg['key']: None for cfg in panel_defs}
 
     with output_container:
         stack = ui.element('div').classes('output-stack flex flex-col w-full h-full flex-1')
@@ -78,7 +180,8 @@ def create_output_panels(state: AppState, bridge=None):
                                 on_click=lambda cfg=config: _cut_text(
                                     state,
                                     cfg['cut_type'],
-                                    textareas[cfg['key']]
+                                    cfg['key'],
+                                    html_panels
                                 )
                             ).props('dense flat').classes('text-xs')
 
@@ -102,30 +205,62 @@ def create_output_panels(state: AppState, bridge=None):
                                 config['play_btn'] = play_btn
                                 config['stop_btn'] = stop_btn
 
-                    textareas[config['key']] = ui.textarea(
-                        placeholder=config['placeholder']
-                    ).classes('w-full h-full flex-1 output-textarea').style('font-family: monospace; min-height: 0; height: 100%;').props('outlined readonly')
+                    # Rich text panel: scrollable div with HTML content
+                    scroll_container = ui.element('div').classes(
+                        'w-full flex-1 output-richtext'
+                    ).style(
+                        'overflow-y: auto; overflow-x: hidden; '
+                        'min-height: 0; height: 100%; '
+                        'font-family: Menlo, Consolas, "Liberation Mono", monospace; '
+                        'font-size: 0.875rem; '
+                        'line-height: 1.5; '
+                        'padding: 0.25rem 0.4rem; '
+                        'color: #e0e0e0; '
+                        'user-select: text; '
+                        'white-space: pre-wrap; '
+                        'word-wrap: break-word; '
+                    )
+
+                    with scroll_container:
+                        html_panel = ui.html('', sanitize=False).classes('w-full')
+                        html_panels[config['key']] = html_panel
 
         def update_outputs():
             for cfg in panel_defs:
                 text_value = getattr(state, cfg['state_attr'])
-                area = textareas[cfg['key']]
-                if area.value != text_value:
-                    area.value = text_value
+                key = cfg['key']
+
+                # Only update DOM when value actually changed
+                if _prev_values[key] != text_value:
+                    _prev_values[key] = text_value
+                    if text_value:
+                        html_content = _text_to_html(text_value)
+                    else:
+                        html_content = (
+                            f'<span style="color: #666; font-style: italic;">'
+                            f'{html.escape(cfg["placeholder"])}</span>'
+                        )
+                    html_panels[key].content = html_content
+
+                    # Auto-scroll to bottom
+                    html_panels[key].run_method(
+                        'scrollIntoView',
+                        False  # alignToTop=False -> scroll to bottom
+                    )
 
                 chars, words = cfg['count_fn']()
-                count_labels[cfg['key']].text = f'{chars} chars, {words} words'
+                count_labels[key].text = f'{chars} chars, {words} words'
 
                 # Update AI panel title dynamically
-                if cfg['key'] == 'ai':
+                if key == 'ai':
                     task_name = state.get_current_ai_task_name()
                     if task_name:
-                        title_labels[cfg['key']].text = f"AI Output - {task_name}"
+                        title_labels[key].text = f"AI Output - {task_name}"
                     else:
-                        title_labels[cfg['key']].text = cfg['title']
+                        title_labels[key].text = cfg['title']
 
                 # Update audio playback controls visibility for AI panel
-                if cfg['key'] == 'ai' and 'play_btn' in cfg and 'stop_btn' in cfg:
+                if key == 'ai' and 'play_btn' in cfg and 'stop_btn' in cfg:
                     # Show controls if TTS is enabled, source is AI, and we have an audio file
                     show_controls = (
                         state.tts_enabled and
@@ -141,40 +276,25 @@ def create_output_panels(state: AppState, bridge=None):
 
 
 def _copy_text(text: str, label: str):
-    """Copy text to clipboard (thread-safe)."""
-    # Capture the text value immediately to avoid race conditions
+    """Copy text to system clipboard using native tools."""
     text_to_copy = str(text) if text else ""
 
     if not text_to_copy.strip():
         ui.notify(f'No {label} text to copy', type='warning')
         return
 
-    try:
-        # Use JavaScript clipboard API via ui.run_javascript
-        import json
-        # Escape the text safely for JavaScript
-        escaped_text = json.dumps(text_to_copy)
-        # Use async clipboard API with proper error handling
-        js_code = f'''
-        (async () => {{
-            try {{
-                await navigator.clipboard.writeText({escaped_text});
-            }} catch (err) {{
-                console.error('Clipboard write failed:', err);
-            }}
-        }})();
-        '''
-        ui.run_javascript(js_code)
-        ui.notify(f'✓ Copied {label} text to clipboard', type='positive')
-    except Exception as e:
-        # Log error but don't crash
-        print(f"Clipboard error: {e}")
-        ui.notify(f'Clipboard error - try again', type='warning')
+    def do_copy():
+        success = _copy_to_clipboard_native(text_to_copy)
+        if not success:
+            print(f"Clipboard copy failed for {label}")
+
+    # Run clipboard operation in background thread to avoid blocking UI
+    threading.Thread(target=do_copy, daemon=True).start()
+    ui.notify(f'Copied {label} text to clipboard', type='positive')
 
 
-def _cut_text(state: AppState, text_type: str, textarea):
-    """Cut text (copy and clear) - thread-safe."""
-    # Capture the text value immediately to avoid race conditions
+def _cut_text(state: AppState, text_type: str, panel_key: str, html_panels: dict):
+    """Cut text (copy to clipboard and clear panel)."""
     if text_type == 'whisper':
         text = str(state.whisper_text) if state.whisper_text else ""
     elif text_type == 'ai':
@@ -188,37 +308,26 @@ def _cut_text(state: AppState, text_type: str, textarea):
         ui.notify(f'No text to cut', type='warning')
         return
 
+    def do_copy():
+        success = _copy_to_clipboard_native(text)
+        if not success:
+            print(f"Clipboard cut failed for {text_type}")
+
+    threading.Thread(target=do_copy, daemon=True).start()
+
+    # Clear the text in state
+    if text_type == 'whisper':
+        state.whisper_text = ""
+    elif text_type == 'ai':
+        state.ai_text = ""
+    elif text_type == 'translation':
+        state.translation_text = ""
+
+    # Clear HTML panel
     try:
-        # Copy to clipboard with async API
-        import json
-        escaped_text = json.dumps(text)
-        js_code = f'''
-        (async () => {{
-            try {{
-                await navigator.clipboard.writeText({escaped_text});
-            }} catch (err) {{
-                console.error('Clipboard write failed:', err);
-            }}
-        }})();
-        '''
-        ui.run_javascript(js_code)
+        if panel_key in html_panels:
+            html_panels[panel_key].content = ""
+    except Exception:
+        pass
 
-        # Clear the text in state
-        if text_type == 'whisper':
-            state.whisper_text = ""
-        elif text_type == 'ai':
-            state.ai_text = ""
-        elif text_type == 'translation':
-            state.translation_text = ""
-
-        # Update textarea (wrap in try to prevent crash if textarea is being updated)
-        try:
-            textarea.value = ""
-        except Exception:
-            pass  # Ignore if textarea is busy
-
-        ui.notify(f'✓ Cut text to clipboard', type='positive')
-    except Exception as e:
-        # Log error but don't crash
-        print(f"Cut error: {e}")
-        ui.notify(f'Cut error - try again', type='warning')
+    ui.notify(f'Cut text to clipboard', type='positive')

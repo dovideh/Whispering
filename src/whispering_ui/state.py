@@ -54,6 +54,9 @@ class AppState:
     # === Autotype Settings ===
     autotype_mode: str = "Off"  # "Off", "Whisper", "Translation", "AI"
 
+    # === Voice Commands Settings ===
+    voice_commands_enabled: bool = False
+
     # === Auto-stop Settings ===
     auto_stop_enabled: bool = False
     auto_stop_minutes: int = 5

@@ -1,8 +1,8 @@
 # Whispering 🎙️
 
-**Version 1.2.3**
+**Version 1.3.0**
 
-Real-time speech-to-text application with AI-powered translation, proofreading, and voice cloning.
+Real-time speech-to-text application with AI-powered translation, proofreading, voice commands, and voice cloning.
 
 Whispering combines [faster-whisper](https://github.com/SYSTRAN/faster-whisper) for state-of-the-art speech recognition with modern AI models (Claude, GPT-4, Llama) to provide a powerful voice interface for your workflow.
 
@@ -16,6 +16,13 @@ Whispering combines [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 
 - **Live Translation**: Translate speech to 100+ languages instantly.
 - **Auto-Type**: Dictate directly into any application (Word, Browser, IDE, Discord).
 - **Smart Formatting**: Paragraph detection and automatic punctuation.
+
+###  Voice Commands
+- **Punctuation by Voice**: Say "comma", "period", "question mark" to insert punctuation.
+- **Text Structure**: "New paragraph", "new line", "tab" for document formatting.
+- **Multi-language Commands**: Speak commands in English, Hebrew, French, German, or Spanish.
+- **Isolation Detection**: Commands are only triggered when spoken as standalone phrases (not mid-sentence).
+- **Rich Text Output**: Output panels render HTML for formatted text display.
 
 ###  AI Powers
 - **Intelligent Proofreading**: correct grammar and polish your spoken text.
@@ -70,6 +77,10 @@ The Modern UI is divided into a control sidebar and dynamic output panels ("Whis
 - **Text-to-Speech**:
   - **Source**: Speak from Raw Transcript (W), AI Output (A), or Translation (T).
   - **Voice**: Upload a reference file to clone a voice instantly.
+- **Voice Commands**:
+  - Enable via the "Voice Commands" checkbox in the sidebar.
+  - Speak command words as standalone phrases (pause before/after).
+  - Commands are replaced with their text equivalents (e.g., "comma" → `,`).
 
 ##  Configuration
 
@@ -86,24 +97,62 @@ summarizer:
   prompt: "Summarize the following text into bullet points:"
 ```
 
+### Voice Commands
+Voice commands are defined in `config/voice_commands.yaml`. The default configuration includes:
+
+**Supported Commands (Phase 1):**
+| Voice Command | Inserts | Variants |
+|---------------|---------|----------|
+| "comma" | `,` | פסיק, virgule, komma, coma |
+| "period" / "full stop" | `.` | נקודה, punkt, punto |
+| "question mark" | `?` | סימן שאלה, fragezeichen |
+| "exclamation mark" | `!` | סימן קריאה, ausrufezeichen |
+| "new paragraph" | `\n\n` | פסקה חדשה, nuevo párrafo |
+| "new line" | `\n` | שורה חדשה, nouvelle ligne |
+| "colon" / "semicolon" | `:` / `;` | נקודתיים, doppelpunkt |
+| "dash" / "ellipsis" | ` — ` / `...` | מקף, tiret |
+| "open quote" / "close quote" | `"` | פתח/סגור מרכאות |
+| "open paren" / "close paren" | ` (` / `) ` | סוגריים |
+| "tab" | `\t` | indent |
+
+**Detection Modes:**
+- `isolation` (default): Command must be the entire spoken segment. "I need a comma here" won't trigger, but saying just "comma" will.
+- `prefix`: Command must start with a wake word (e.g., "command comma").
+
+**Adding Custom Commands:**
+```yaml
+commands:
+  my_signature:
+    action: insert_text
+    insert: "\n\nBest regards,\nJohn Doe"
+    triggers:
+      en: ["sign off", "my signature"]
+```
+
 ##  File Structure
 
 ```
 Whispering/
-├── config/                 # Configuration files (AI keys, personas)
-├── logs/                   # Session logs organized by date
-├── scripts/                # Install & Run scripts
+├── config/
+│   ├── ai_config.yaml          # AI model settings & prompts
+│   ├── custom_personas.yaml    # Custom AI assistants
+│   └── voice_commands.yaml     # Voice command definitions
+├── logs/                       # Session logs organized by date
+├── scripts/                    # Install & Run scripts
 ├── src/
-│   ├── whispering_ui/      # Modern NiceGUI Application
-│   │   ├── components/     # UI Widgets (Sidebar, Chat, Help)
-│   │   ├── bridge.py       # UI <-> Core Logic Bridge
-│   │   └── main.py         # App Entry Point
-│   ├── core_parts/         # Audio Device & Signal Processing
-│   ├── ai_provider.py      # OpenRouter AI Integration
-│   ├── session_logger.py   # JSONL Logging & Recovery System
-│   └── tts_controller.py   # TTS & Voice Cloning Logic
-├── tts_output/             # Generated Audio Files
-└── tts_voices/             # Uploaded Voice Reference Files
+│   ├── whispering_ui/          # Modern NiceGUI Application
+│   │   ├── components/         # UI Widgets (Sidebar, Output, Help)
+│   │   ├── bridge.py           # UI <-> Core Logic Bridge
+│   │   └── main.py             # App Entry Point
+│   ├── core_parts/             # Audio Device & Signal Processing
+│   ├── ai_provider.py          # OpenRouter AI Integration
+│   ├── commands_config.py      # Voice commands YAML loader
+│   ├── command_detector.py     # Voice command pattern matching
+│   ├── command_executor.py     # Voice command action dispatcher
+│   ├── session_logger.py       # JSONL Logging & Recovery System
+│   └── tts_controller.py       # TTS & Voice Cloning Logic
+├── tts_output/                 # Generated Audio Files
+└── tts_voices/                 # Uploaded Voice Reference Files
 ```
 
 ##  Requirements
@@ -142,6 +191,29 @@ Then select "pipewire" as your input device in Whispering.
 Use `qpwgraph` for visual JACK-style audio routing.
 
 ## Changelog
+
+### Version 1.3.0
+**New Features:**
+- **Voice Commands (Phase 1)**: Control transcription with your voice
+  - Punctuation: "comma", "period", "question mark", "exclamation mark", etc.
+  - Structure: "new line", "new paragraph", "tab"
+  - Quotes & Parens: "open quote", "close quote", "open paren", "close paren"
+  - Multi-language triggers: Commands work in English, Hebrew, French, German, Spanish
+  - Configurable via `config/voice_commands.yaml`
+- **Rich Text Output Panels**: Output panels now render HTML instead of plain text
+  - Enables formatted text display for future Phase 2 (bold, italic, headings)
+  - Proper newline and tab rendering
+  - XSS-safe HTML escaping
+
+**Improvements:**
+- Native clipboard operations (xclip/xsel/wl-copy) replace JavaScript clipboard API for PyQt6 compatibility
+- Command word suppression prevents "comma" from flickering in preview before replacement
+- Isolation heuristic: Commands only trigger when spoken as standalone phrases
+
+**Voice Commands Roadmap:**
+- **Phase 2** (Planned): Formatting commands (bold, italic, headings) with stateful detection
+- **Phase 3** (Planned): User-defined macros (keystroke sequences)
+- **Phase 4** (Planned): Dual-model architecture for low-latency command detection
 
 ### Version 1.2.3
 **New Features:**
