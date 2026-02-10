@@ -361,11 +361,9 @@ class Qwen3TTSProvider(BaseTTSProvider):
             model_name = self._get_model_name(clone=False)
             print(f"Loading Qwen3-TTS ({model_name}) on {self.device}...")
 
-            # Determine dtype and attention implementation
-            # Use torch_dtype (not dtype) so Flash Attention 2 sees the dtype
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
-            kwargs["torch_dtype"] = compute_dtype
+            kwargs["dtype"] = compute_dtype
 
             # flash-attn is required
             try:
@@ -409,7 +407,7 @@ class Qwen3TTSProvider(BaseTTSProvider):
 
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
-            kwargs["torch_dtype"] = compute_dtype
+            kwargs["dtype"] = compute_dtype
             kwargs["attn_implementation"] = "flash_attention_2"
 
             self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
