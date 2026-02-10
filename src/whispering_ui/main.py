@@ -86,40 +86,48 @@ def main():
         state.ai_available = False
 
     # Check TTS availability
+    # Always show TTS section so user can see install instructions.
+    # tts_available=True means the TTS UI section is visible.
+    # tts_backends_available tracks which engines are actually installed.
     try:
         from tts_provider import get_available_backends
         from tts_controller import TTSController
 
         backends = get_available_backends()
         state.tts_backends_available = backends
-        state.tts_available = any(backends.values())
+        # Show TTS section whenever our modules load (always)
+        state.tts_available = True
 
-        if state.tts_available:
-            # Load TTS settings
-            state.tts_enabled = settings.get("tts_enabled", False)
-            state.tts_backend = settings.get("tts_backend", "chatterbox")
-            state.tts_source = settings.get("tts_source", "whisper")
-            state.tts_auto_play = settings.get("tts_auto_play", True)
-            state.tts_save_file = settings.get("tts_save_file", False)
-            state.tts_format = settings.get("tts_format", "wav")
-            state.tts_qwen3_speaker = settings.get("tts_qwen3_speaker", "Ryan")
-            state.tts_qwen3_model_size = settings.get("tts_qwen3_model_size", "1.7B")
+        # Load TTS settings
+        state.tts_enabled = settings.get("tts_enabled", False)
+        state.tts_backend = settings.get("tts_backend", "chatterbox")
+        state.tts_source = settings.get("tts_source", "whisper")
+        state.tts_auto_play = settings.get("tts_auto_play", True)
+        state.tts_save_file = settings.get("tts_save_file", False)
+        state.tts_format = settings.get("tts_format", "wav")
+        state.tts_qwen3_speaker = settings.get("tts_qwen3_speaker", "Ryan")
+        state.tts_qwen3_model_size = settings.get("tts_qwen3_model_size", "1.7B")
 
-            # If saved backend is not installed, fall back to first available
-            if not backends.get(state.tts_backend):
-                for name, avail in backends.items():
-                    if avail:
-                        state.tts_backend = name
-                        break
-
-            # Print backend status
+        # If saved backend is not installed, fall back to first available
+        if not backends.get(state.tts_backend):
             for name, avail in backends.items():
-                status = "available" if avail else "not installed"
-                print(f"  TTS backend {name}: {status}")
-        else:
-            print("No TTS backends installed. TTS features disabled.")
-            print("  Install Chatterbox: pip install chatterbox-tts --no-deps")
-            print("  Install Qwen3-TTS: pip install qwen-tts")
+                if avail:
+                    state.tts_backend = name
+                    break
+
+        # Print backend status
+        has_any = False
+        for name, avail in backends.items():
+            status = "available" if avail else "not installed"
+            print(f"  TTS backend {name}: {status}")
+            if avail:
+                has_any = True
+        if not has_any:
+            state.tts_enabled = False  # Don't auto-enable if nothing is installed
+            print("  No TTS backends installed.")
+            print("  Install with: ./scripts/install.sh --tts")
+            print("  Or manually: pip install chatterbox-tts --no-deps")
+            print("              pip install qwen-tts")
     except Exception as e:
         print(f"TTS features not available: {e}")
         state.tts_available = False
@@ -128,8 +136,8 @@ def main():
     # Create processing bridge
     bridge = ProcessingBridge(state)
 
-    # Initialize TTS controller in bridge if available
-    if state.tts_available:
+    # Initialize TTS controller in bridge if any backend is available
+    if state.tts_available and any(state.tts_backends_available.values()):
         try:
             from tts_controller import TTSController
             bridge.tts_controller = TTSController(
@@ -144,7 +152,6 @@ def main():
             bridge.tts_controller.on_error = lambda msg: setattr(state, 'tts_status_message', msg)
         except Exception as e:
             print(f"Failed to initialize TTS controller: {e}")
-            state.tts_available = False
 
     # === RECOVERY DIALOG ===
     # Check for crashed sessions and offer recovery

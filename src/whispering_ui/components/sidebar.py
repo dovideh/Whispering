@@ -554,21 +554,20 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                 return control
 
             if state.tts_available:
+                has_any_backend = any(state.tts_backends_available.values())
+
                 with tts_section:
                     # Backend selection
                     with ui.row().classes('items-center w-full gap-1'):
                         ui.label('Engine:').classes('text-xs w-10')
-                        # Build backend options from what's available
-                        backend_options = []
-                        if state.tts_backends_available.get("chatterbox"):
-                            backend_options.append("chatterbox")
-                        if state.tts_backends_available.get("qwen3"):
-                            backend_options.append("qwen3")
-                        # Always show both options so user knows what's possible
-                        if "chatterbox" not in backend_options:
-                            backend_options.append("chatterbox")
-                        if "qwen3" not in backend_options:
-                            backend_options.append("qwen3")
+                        # Build backend options with availability labels
+                        backend_options = {}
+                        for bname in ["chatterbox", "qwen3"]:
+                            installed = state.tts_backends_available.get(bname, False)
+                            if installed:
+                                backend_options[bname] = bname
+                            else:
+                                backend_options[bname] = f"{bname} (not installed)"
 
                         tts_backend_select = register_tts(ui.select(
                             options=backend_options,
@@ -576,17 +575,30 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                         ).classes('flex-grow').props('dense'))
 
                         def on_backend_change(e):
-                            state.tts_backend = e.value
-                            if bridge.tts_controller:
-                                bridge.tts_controller.switch_backend(
-                                    backend=e.value,
-                                    qwen3_model_size=state.tts_qwen3_model_size,
-                                    qwen3_speaker=state.tts_qwen3_speaker,
-                                )
+                            selected = e.value
+                            installed = state.tts_backends_available.get(selected, False)
+                            if not installed:
+                                state.tts_status_message = f"{selected} not installed. Run: ./scripts/install.sh --tts={selected}"
+                                state.tts_enabled = False
+                                tts_cb.value = False
+                            else:
+                                state.tts_backend = selected
+                                if bridge.tts_controller:
+                                    bridge.tts_controller.switch_backend(
+                                        backend=selected,
+                                        qwen3_model_size=state.tts_qwen3_model_size,
+                                        qwen3_speaker=state.tts_qwen3_speaker,
+                                    )
+                                state.tts_status_message = ""
                             # Show/hide Qwen3 options
-                            qwen3_row.set_visibility(e.value == "qwen3")
+                            qwen3_row.set_visibility(selected == "qwen3")
 
                         tts_backend_select.on_value_change(on_backend_change)
+
+                    # Install hint when no backends available
+                    if not has_any_backend:
+                        ui.label('No TTS engine installed').classes('text-xs text-orange-400')
+                        ui.label('Run: ./scripts/install.sh --tts').classes('text-xs text-gray-500')
 
                     # Qwen3-TTS specific options (speaker + model size)
                     qwen3_row = ui.row().classes('items-center w-full gap-1')
@@ -669,8 +681,14 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                     tts_status_label = ui.label('').classes('text-xs text-blue-400')
 
                     def update_tts_status():
-                        if state.tts_status_message:
-                            tts_status_label.text = state.tts_status_message[:50]
+                        msg = state.tts_status_message
+                        if msg:
+                            # Color errors orange/red
+                            if 'not installed' in msg or 'error' in msg.lower() or 'failed' in msg.lower():
+                                tts_status_label.classes(replace='text-xs text-orange-400')
+                            else:
+                                tts_status_label.classes(replace='text-xs text-blue-400')
+                            tts_status_label.text = msg[:60]
                         else:
                             tts_status_label.text = ''
                         # Sync playback state from controller
@@ -680,6 +698,13 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                     ui.timer(0.2, update_tts_status)
 
             def on_tts_toggle(e):
+                # Check if selected backend is actually installed
+                backend_installed = state.tts_backends_available.get(state.tts_backend, False)
+                if e.value and not backend_installed:
+                    state.tts_status_message = f"{state.tts_backend} not installed. Run: ./scripts/install.sh --tts"
+                    e.sender.value = False
+                    state.tts_enabled = False
+                    return
                 state.tts_enabled = e.value
                 active = e.value and state.tts_available
                 _set_section_visual_state(tts_section, active)

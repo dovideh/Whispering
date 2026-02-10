@@ -22,21 +22,25 @@ warnings.filterwarnings('ignore', category=UserWarning)
 # ---------------------------------------------------------------------------
 
 def get_available_backends() -> dict[str, bool]:
-    """Check which TTS backends are installed and importable."""
+    """Check which TTS backends are installed and importable.
+
+    Does a deep import check (tries the actual class, not just the
+    top-level package) so partially-installed packages don't false-positive.
+    """
     backends = {}
 
-    # Check Chatterbox
+    # Check Chatterbox - verify the actual TTS class is importable
     try:
-        import chatterbox  # noqa: F401
+        from chatterbox.tts import ChatterboxTTS  # noqa: F401
         backends["chatterbox"] = True
-    except ImportError:
+    except (ImportError, ModuleNotFoundError, Exception):
         backends["chatterbox"] = False
 
-    # Check Qwen3-TTS
+    # Check Qwen3-TTS - verify the model class is importable
     try:
-        import qwen_tts  # noqa: F401
+        from qwen_tts import Qwen3TTSModel  # noqa: F401
         backends["qwen3"] = True
-    except ImportError:
+    except (ImportError, ModuleNotFoundError, Exception):
         backends["qwen3"] = False
 
     return backends
