@@ -9,6 +9,7 @@ import builtins
 import ctypes
 import glob
 import os
+import re
 import time as _time
 import warnings
 from typing import Optional, Literal
@@ -647,6 +648,35 @@ class KokoroTTSProvider(BaseTTSProvider):
         self._current_lang: str = ""
 
     @staticmethod
+    def _sanitize_text(text: str) -> str:
+        """Normalise text so Kokoro's G2P pipeline doesn't choke.
+
+        Kokoro/misaki can return ``None`` phonemes for tokens it cannot
+        handle (numbered-list markers like ``1.``, bare dashes ``-``,
+        markdown bullets ``*``, etc.), which then causes a
+        ``TypeError: unsupported operand type(s) for +: 'NoneType' and 'str'``
+        inside the phoneme concatenation logic.
+
+        We flatten the most common problematic patterns into plain prose
+        that the G2P can process safely.
+        """
+        # Numbered list markers: "1. Foo" → "First, Foo"  (only for #1)
+        #                        "2. Foo" → "Foo"
+        text = re.sub(r'(?m)^\s*\d+[\.\)]\s*', '', text)
+        # Bullet markers: "- Foo" / "* Foo" / "• Foo"
+        text = re.sub(r'(?m)^\s*[-*•]\s+', '', text)
+        # Collapse multiple newlines into a single period-space
+        # (Kokoro splits on \n+ so each fragment must be a valid sentence)
+        text = re.sub(r'\n{2,}', '. ', text)
+        # Single newlines → space (within a paragraph)
+        text = re.sub(r'\n', ' ', text)
+        # Standalone dashes/hyphens used as separators: " - " → ", "
+        text = re.sub(r'\s+[-–—]\s+', ', ', text)
+        # Collapse runs of whitespace
+        text = re.sub(r'  +', ' ', text)
+        return text.strip()
+
+    @staticmethod
     def _voice_to_lang(voice: str) -> str:
         """Derive Kokoro lang_code from the voice ID prefix."""
         if voice and len(voice) >= 1:
@@ -740,6 +770,11 @@ class KokoroTTSProvider(BaseTTSProvider):
             from kokoro import KPipeline
             self._pipeline = KPipeline(lang_code=lang_code)
             self._current_lang = lang_code
+
+        # Sanitise text so the G2P doesn't crash on lists / dashes / etc.
+        text = self._sanitize_text(text)
+        if not text:
+            raise ValueError("Text empty after sanitisation")
 
         tts_log(f"Kokoro synthesize (voice={voice}): "
                 f"{len(text)} chars \"{text[:60]}...\"")
