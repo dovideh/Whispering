@@ -674,7 +674,12 @@ class KokoroTTSProvider(BaseTTSProvider):
 
         def _flush_list():
             if list_buf:
-                merged.append(', '.join(list_buf))
+                joined = ', '.join(list_buf)
+                # End the list with a period so it forms a sentence
+                # boundary and doesn't run into the next paragraph.
+                if not re.search(r'[.!?]\s*$', joined):
+                    joined += '.'
+                merged.append(joined)
                 list_buf.clear()
 
         for line in lines:
