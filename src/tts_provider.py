@@ -161,10 +161,35 @@ class ChatterboxProvider(BaseTTSProvider):
         """Load Chatterbox model onto the given device."""
         if self.model_type == "multilingual":
             from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-            return ChatterboxMultilingualTTS.from_pretrained(device=device)
+            model = ChatterboxMultilingualTTS.from_pretrained(device=device)
         else:
             from chatterbox.tts import ChatterboxTTS
-            return ChatterboxTTS.from_pretrained(device=device)
+            model = ChatterboxTTS.from_pretrained(device=device)
+
+        # Patch the T3 model's internal LlamaModel to use eager attention.
+        # Chatterbox creates it via LlamaModel(config) so the env var and
+        # PyTorch backend flags may not fully propagate to the config object.
+        self._patch_eager_attention(model)
+        return model
+
+    @staticmethod
+    def _patch_eager_attention(model):
+        """Walk Chatterbox sub-models and force eager attention on any
+        transformers model that still has _attn_implementation='sdpa'."""
+        for attr_name in ("t3", "s3", "ve"):
+            sub = getattr(model, attr_name, None)
+            if sub is None:
+                continue
+            # The T3 model stores the LlamaModel as .tfmr
+            tfmr = getattr(sub, "tfmr", sub)
+            if hasattr(tfmr, "set_attn_implementation"):
+                try:
+                    tfmr.set_attn_implementation("eager")
+                except Exception:
+                    pass
+            cfg = getattr(tfmr, "config", None)
+            if cfg is not None and getattr(cfg, "_attn_implementation", None) == "sdpa":
+                cfg._attn_implementation = "eager"
 
     def _ensure_initialized(self):
         if self._initialized:
@@ -175,8 +200,14 @@ class ChatterboxProvider(BaseTTSProvider):
             print(f"Loading ChatterboxTTS on {load_device}...")
 
             # Force eager attention — SDPA doesn't support output_attentions=True
-            # which Chatterbox requires internally for voice reference processing
+            # which Chatterbox requires internally for voice reference processing.
+            # The env var alone isn't enough because Chatterbox's T3 model creates
+            # its LlamaModel via LlamaModel(config), not from_pretrained().
+            # Disabling SDPA at the PyTorch backend level is the only reliable fix.
             os.environ["TRANSFORMERS_ATTN_IMPLEMENTATION"] = "eager"
+            torch.backends.cuda.enable_flash_sdp(False)
+            torch.backends.cuda.enable_mem_efficient_sdp(False)
+            torch.backends.cuda.enable_math_sdp(True)
 
             if load_device == "cuda":
                 torch.backends.cudnn.enabled = True
