@@ -660,18 +660,18 @@ class KokoroTTSProvider(BaseTTSProvider):
         We flatten the most common problematic patterns into plain prose
         that the G2P can process safely.
         """
-        # Numbered list markers: "1. Foo" → "First, Foo"  (only for #1)
-        #                        "2. Foo" → "Foo"
+        # Numbered list markers: "1. Foo" / "1) Foo" → "Foo"
         text = re.sub(r'(?m)^\s*\d+[\.\)]\s*', '', text)
         # Bullet markers: "- Foo" / "* Foo" / "• Foo"
         text = re.sub(r'(?m)^\s*[-*•]\s+', '', text)
-        # Collapse multiple newlines into a single period-space
-        # (Kokoro splits on \n+ so each fragment must be a valid sentence)
-        text = re.sub(r'\n{2,}', '. ', text)
-        # Single newlines → space (within a paragraph)
-        text = re.sub(r'\n', ' ', text)
         # Standalone dashes/hyphens used as separators: " - " → ", "
         text = re.sub(r'\s+[-–—]\s+', ', ', text)
+        # Collapse multiple newlines into a single space
+        text = re.sub(r'\n+', ' ', text)
+        # Repeated punctuation: ".." / "!!" / "..." → single
+        text = re.sub(r'([.!?])[.!?\s]+(?=[A-Z\s])', r'\1 ', text)
+        # Stray colons / semicolons before period: ":." → "."
+        text = re.sub(r'[:;]\s*\.', '.', text)
         # Collapse runs of whitespace
         text = re.sub(r'  +', ' ', text)
         return text.strip()
@@ -779,10 +779,25 @@ class KokoroTTSProvider(BaseTTSProvider):
         tts_log(f"Kokoro synthesize (voice={voice}): "
                 f"{len(text)} chars \"{text[:60]}...\"")
 
+        # Split into sentences ourselves and feed each to the pipeline
+        # individually.  This way a single bad segment (where the G2P
+        # returns None phonemes) doesn't kill the entire synthesis.
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text)
+                     if s.strip()]
+        if not sentences:
+            sentences = [text]
+
         audio_segments = []
-        for gs, ps, audio in self._pipeline(text, voice=voice):
-            if audio is not None and len(audio) > 0:
-                audio_segments.append(audio)
+        for sentence in sentences:
+            try:
+                for gs, ps, audio in self._pipeline(
+                        sentence, voice=voice, split_pattern=None):
+                    if audio is not None and len(audio) > 0:
+                        audio_segments.append(audio)
+            except (TypeError, ValueError, RuntimeError) as e:
+                tts_log(f"Kokoro G2P warning: skipping segment "
+                        f"({e}): \"{sentence[:40]}...\"")
+                continue
 
         if not audio_segments:
             raise RuntimeError("Kokoro produced no audio output")
