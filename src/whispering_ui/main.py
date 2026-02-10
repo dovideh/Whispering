@@ -90,7 +90,7 @@ def main():
     # tts_available=True means the TTS UI section is visible.
     # tts_backends_available tracks which engines are actually installed.
     try:
-        from tts_provider import get_available_backends, is_flash_attn_available
+        from tts_provider import get_available_backends
         from tts_controller import TTSController
 
         backends = get_available_backends()
@@ -122,9 +122,6 @@ def main():
             print(f"  TTS backend {name}: {status}")
             if avail:
                 has_any = True
-        if backends.get("qwen3"):
-            flash_ok = is_flash_attn_available()
-            print(f"  flash-attn: {'available' if flash_ok else 'not installed (Qwen3 will use eager attention)'}")
         if not has_any:
             state.tts_enabled = False  # Don't auto-enable if nothing is installed
             print("  No TTS backends installed.")

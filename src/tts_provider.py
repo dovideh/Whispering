@@ -26,6 +26,7 @@ def get_available_backends() -> dict[str, bool]:
 
     Does a deep import check (tries the actual class, not just the
     top-level package) so partially-installed packages don't false-positive.
+    Qwen3-TTS requires both qwen_tts AND flash-attn.
     """
     backends = {}
 
@@ -36,25 +37,24 @@ def get_available_backends() -> dict[str, bool]:
     except (ImportError, ModuleNotFoundError, Exception):
         backends["chatterbox"] = False
 
-    # Check Qwen3-TTS - only require qwen_tts itself.
-    # flash-attn is recommended for performance but NOT required;
-    # Qwen3-TTS falls back to manual PyTorch attention without it.
+    # Check Qwen3-TTS - requires both qwen_tts and flash-attn
     try:
-        from qwen_tts import Qwen3TTSModel  # noqa: F401
+        # Suppress the flash-attn warning that qwen_tts prints on import
+        # (it prints to stdout/stderr when flash-attn is missing during import)
+        import io, sys as _sys
+        _old_stdout, _old_stderr = _sys.stdout, _sys.stderr
+        _sys.stdout = io.StringIO()
+        _sys.stderr = io.StringIO()
+        try:
+            from qwen_tts import Qwen3TTSModel  # noqa: F401
+        finally:
+            _sys.stdout, _sys.stderr = _old_stdout, _old_stderr
+        import flash_attn  # noqa: F401
         backends["qwen3"] = True
     except (ImportError, ModuleNotFoundError, Exception):
         backends["qwen3"] = False
 
     return backends
-
-
-def is_flash_attn_available() -> bool:
-    """Check if flash-attn is installed (recommended for Qwen3-TTS performance)."""
-    try:
-        import flash_attn  # noqa: F401
-        return True
-    except (ImportError, ModuleNotFoundError, Exception):
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,15 @@ class Qwen3TTSProvider(BaseTTSProvider):
             return
 
         try:
-            from qwen_tts import Qwen3TTSModel
+            # Suppress the flash-attn warning that qwen_tts prints on import
+            import io, sys as _sys
+            _old_stdout, _old_stderr = _sys.stdout, _sys.stderr
+            _sys.stdout = io.StringIO()
+            _sys.stderr = io.StringIO()
+            try:
+                from qwen_tts import Qwen3TTSModel
+            finally:
+                _sys.stdout, _sys.stderr = _old_stdout, _old_stderr
 
             model_name = self._get_model_name(clone=False)
             print(f"Loading Qwen3-TTS ({model_name}) on {self.device}...")
@@ -250,13 +258,17 @@ class Qwen3TTSProvider(BaseTTSProvider):
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = dtype
 
-            # Use flash-attn if available (faster), otherwise fall back to eager
-            if is_flash_attn_available():
+            # flash-attn is required
+            try:
+                import flash_attn  # noqa: F401
                 kwargs["attn_implementation"] = "flash_attention_2"
-            else:
-                print("Note: flash-attn not installed. Using eager attention (slower).")
-                print("  Install for better performance: pip install flash-attn --no-build-isolation")
-                kwargs["attn_implementation"] = "eager"
+            except ImportError:
+                raise ImportError(
+                    "flash-attn is required for Qwen3-TTS but is not installed.\n"
+                    "Install with: ./scripts/install.sh --tts=qwen3\n"
+                    "Or manually: pip install flash-attn --no-build-isolation\n"
+                    "Or use a pre-built wheel from https://github.com/mjun0812/flash-attention-prebuild-wheels/releases"
+                )
 
             self.model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             self._initialized = True
@@ -273,7 +285,15 @@ class Qwen3TTSProvider(BaseTTSProvider):
             return
 
         try:
-            from qwen_tts import Qwen3TTSModel
+            import io, sys as _sys
+            _old_stdout, _old_stderr = _sys.stdout, _sys.stderr
+            _sys.stdout = io.StringIO()
+            _sys.stderr = io.StringIO()
+            try:
+                from qwen_tts import Qwen3TTSModel
+            finally:
+                _sys.stdout, _sys.stderr = _old_stdout, _old_stderr
+            import flash_attn  # noqa: F401
 
             model_name = self._get_model_name(clone=True)
             print(f"Loading Qwen3-TTS clone model ({model_name})...")
@@ -281,20 +301,16 @@ class Qwen3TTSProvider(BaseTTSProvider):
             dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = dtype
-
-            if is_flash_attn_available():
-                kwargs["attn_implementation"] = "flash_attention_2"
-            else:
-                kwargs["attn_implementation"] = "eager"
+            kwargs["attn_implementation"] = "flash_attention_2"
 
             self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             print("Qwen3-TTS clone model loaded")
 
         except ImportError as e:
             raise ImportError(
-                "Qwen3-TTS is not installed.\n"
-                "Install with: pip install qwen-tts\n"
-                "Or run: ./scripts/install.sh --tts=qwen3"
+                "flash-attn is required for Qwen3-TTS.\n"
+                "Install with: ./scripts/install.sh --tts=qwen3\n"
+                "Or use a pre-built wheel from https://github.com/mjun0812/flash-attention-prebuild-wheels/releases"
             ) from e
         except Exception as e:
             raise RuntimeError(f"Failed to load Qwen3-TTS clone model: {e}") from e
@@ -430,8 +446,6 @@ if __name__ == "__main__":
     for name, available in backends.items():
         status = "INSTALLED" if available else "not installed"
         print(f"  {name}: {status}")
-    flash_ok = is_flash_attn_available()
-    print(f"  flash-attn: {'INSTALLED' if flash_ok else 'not installed (Qwen3-TTS will use eager attention)'}")
 
     # Test with first available backend
     for name, available in backends.items():

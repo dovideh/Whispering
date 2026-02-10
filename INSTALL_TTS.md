@@ -29,17 +29,20 @@ source .venv/bin/activate
 # Step 1: Install Qwen3-TTS
 pip install qwen-tts
 
-# Step 2 (optional but recommended): Install flash-attn for faster inference
-# --no-build-isolation is needed because flash-attn needs torch at build time
-MAX_JOBS=4 pip install flash-attn --no-build-isolation
-
+# Step 2: Install flash-attn (REQUIRED)
+# The install script auto-detects your system and downloads a pre-built wheel.
+# If installing manually, try a pre-built wheel first (instant, no compiler):
+#   Visit https://github.com/mjun0812/flash-attention-prebuild-wheels/releases
+#   Download the wheel matching your Python/PyTorch/CUDA versions, then:
+#   pip install ./flash_attn-X.X.X+cuXXXtorchX.X-cpXXX-cpXXX-linux_x86_64.whl
+#
+# Or build from source (slow, needs CUDA toolkit + compiler):
+#   MAX_JOBS=4 pip install flash-attn --no-build-isolation
+#
 # NOTE: Do NOT use "uv pip install flash-attn" - it will fail.
-# Use regular pip with --no-build-isolation instead.
-# If flash-attn fails to build, Qwen3-TTS will still work using
-# eager attention (slower but fully functional).
 
 # Verify
-python -c "from qwen_tts import Qwen3TTSModel; print('Qwen3-TTS OK')"
+python -c "from qwen_tts import Qwen3TTSModel; import flash_attn; print('Qwen3-TTS OK')"
 ```
 
 ### Option B: Chatterbox TTS (ResembleAI)
@@ -94,11 +97,11 @@ If you see `ModuleNotFoundError: No module named 'distutils'`:
 
 ### flash-attn build failure (Qwen3-TTS)
 
-If `pip install flash-attn --no-build-isolation` fails to compile:
-- **This is not critical** - Qwen3-TTS will fall back to eager attention (slower but works)
-- flash-attn requires: CUDA toolkit headers, a compatible GPU, and torch already installed
-- The app will print a note at startup if flash-attn is missing
-- To retry later: `MAX_JOBS=4 pip install flash-attn --no-build-isolation`
+If building flash-attn from source fails, **use a pre-built wheel instead**:
+
+1. **Auto-install** (recommended): `./scripts/install.sh --tts=qwen3` auto-detects your Python/PyTorch/CUDA and downloads the right pre-built wheel
+2. **Manual wheel**: Visit https://github.com/mjun0812/flash-attention-prebuild-wheels/releases and download the `.whl` matching your system, then `pip install ./flash_attn-....whl`
+3. **Wheel finder**: Visit https://flashattn.dev to find the exact wheel for your configuration
 
 ### No audio output
 

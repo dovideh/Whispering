@@ -127,23 +127,26 @@ $PYTHON_CMD -m pip install -r requirements.txt
 echo -e "${GREEN}✓ Base requirements installed${NC}"
 echo
 
-# Check for NVIDIA GPU
+# Check for NVIDIA GPU and auto-install CUDA libraries if needed
 echo -e "${YELLOW}Checking for NVIDIA GPU...${NC}"
+HAS_GPU=false
 if command -v nvidia-smi &> /dev/null; then
     echo -e "${GREEN}✓ NVIDIA GPU detected${NC}"
     nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+    HAS_GPU=true
     echo
 
-    # Ask about CUDA libraries
-    echo -e "${YELLOW}Do you want to install CUDA libraries for GPU acceleration? (y/N)${NC}"
-    read -r response
-    if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-        echo -e "${YELLOW}Installing CUDA libraries...${NC}"
-        $PYTHON_CMD -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
-        echo -e "${GREEN}✓ CUDA libraries installed${NC}"
+    # Auto-install CUDA libraries - check if already present first
+    if $PYTHON_CMD -c "import nvidia.cublas" 2>/dev/null && $PYTHON_CMD -c "import nvidia.cudnn" 2>/dev/null; then
+        echo -e "${GREEN}✓ CUDA libraries already installed${NC}"
     else
-        echo -e "${BLUE}Skipping CUDA libraries. You can install them later with:${NC}"
-        echo -e "${BLUE}  pip install nvidia-cublas-cu12 nvidia-cudnn-cu12${NC}"
+        echo -e "${YELLOW}Installing CUDA libraries for GPU acceleration...${NC}"
+        $PYTHON_CMD -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 --quiet 2>/dev/null && {
+            echo -e "${GREEN}✓ CUDA libraries installed${NC}"
+        } || {
+            echo -e "${YELLOW}⚠ CUDA libraries installation failed (non-critical)${NC}"
+            echo -e "${BLUE}  GPU acceleration may still work via system CUDA.${NC}"
+        }
     fi
 else
     echo -e "${BLUE}No NVIDIA GPU detected. CPU mode will be used.${NC}"
@@ -226,6 +229,104 @@ install_chatterbox() {
     echo
 }
 
+install_flash_attn() {
+    # Install flash-attn (REQUIRED for Qwen3-TTS).
+    # Strategy: try pre-built wheel first (fast, no compiler needed),
+    #           then fall back to building from source.
+
+    echo -e "${YELLOW}Installing flash-attn (required for Qwen3-TTS)...${NC}"
+
+    # Check if already installed
+    if $PYTHON_CMD -c "import flash_attn; print(f'flash-attn {flash_attn.__version__} already installed')" 2>/dev/null; then
+        echo -e "${GREEN}✓ flash-attn already installed${NC}"
+        return 0
+    fi
+
+    # Detect Python version, torch version, and CUDA version for pre-built wheel
+    PY_VER=$($PYTHON_CMD -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')" 2>/dev/null)
+    TORCH_VER=$($PYTHON_CMD -c "import torch; v=torch.__version__.split('+')[0].rsplit('.',1)[0]; print(v)" 2>/dev/null)
+    CUDA_VER=$($PYTHON_CMD -c "
+import torch
+cv = torch.version.cuda
+if cv:
+    parts = cv.split('.')
+    print(f'cu{parts[0]}{parts[1]}')
+else:
+    print('')
+" 2>/dev/null)
+
+    echo -e "${BLUE}  Detected: Python=${PY_VER}, PyTorch=${TORCH_VER}, CUDA=${CUDA_VER}${NC}"
+
+    FLASH_ATTN_INSTALLED=false
+
+    # --- Attempt 1: Pre-built wheel from mjun0812 (fastest, no compiler needed) ---
+    if [ -n "$CUDA_VER" ] && [ -n "$TORCH_VER" ] && [ -n "$PY_VER" ]; then
+        echo -e "${YELLOW}  Trying pre-built wheel (no compilation needed)...${NC}"
+
+        # Try flash-attn versions from newest to oldest
+        for FA_VER in 2.8.3 2.7.4 2.6.3; do
+            WHEEL_NAME="flash_attn-${FA_VER}+${CUDA_VER}torch${TORCH_VER}-${PY_VER}-${PY_VER}-linux_x86_64.whl"
+            # Try multiple release tags (the repo uses incrementing tags)
+            for RELEASE_TAG in v0.7.16 v0.7.15 v0.7.13 v0.7.12 v0.7.11; do
+                WHEEL_URL="https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/${RELEASE_TAG}/${WHEEL_NAME}"
+                echo -e "${BLUE}    Trying: flash-attn ${FA_VER} from ${RELEASE_TAG}...${NC}"
+                if $PYTHON_CMD -m pip install "$WHEEL_URL" 2>/dev/null; then
+                    echo -e "${GREEN}✓ flash-attn ${FA_VER} installed from pre-built wheel${NC}"
+                    FLASH_ATTN_INSTALLED=true
+                    break 2
+                fi
+            done
+        done
+    fi
+
+    # --- Attempt 2: Build from source with --no-build-isolation ---
+    if [ "$FLASH_ATTN_INSTALLED" = false ]; then
+        echo -e "${YELLOW}  Pre-built wheel not found. Building from source...${NC}"
+        echo -e "${BLUE}  This may take several minutes to compile...${NC}"
+        MAX_JOBS=4 $PYTHON_CMD -m pip install -U flash-attn --no-build-isolation 2>&1 | tail -5
+        if $PYTHON_CMD -c "import flash_attn" 2>/dev/null; then
+            echo -e "${GREEN}✓ flash-attn installed (built from source)${NC}"
+            FLASH_ATTN_INSTALLED=true
+        fi
+    fi
+
+    # --- Attempt 3: Try the official Dao-AILab release wheels ---
+    if [ "$FLASH_ATTN_INSTALLED" = false ] && [ -n "$CUDA_VER" ] && [ -n "$TORCH_VER" ] && [ -n "$PY_VER" ]; then
+        echo -e "${YELLOW}  Trying official GitHub release wheels...${NC}"
+        # The official repo uses slightly different naming
+        for FA_VER in 2.7.4 2.6.3; do
+            WHEEL_NAME="flash_attn-${FA_VER}+${CUDA_VER}torch${TORCH_VER}cxx11abiFALSE-${PY_VER}-${PY_VER}-linux_x86_64.whl"
+            WHEEL_URL="https://github.com/Dao-AILab/flash-attention/releases/download/v${FA_VER}/${WHEEL_NAME}"
+            echo -e "${BLUE}    Trying: official flash-attn ${FA_VER}...${NC}"
+            if $PYTHON_CMD -m pip install "$WHEEL_URL" 2>/dev/null; then
+                echo -e "${GREEN}✓ flash-attn ${FA_VER} installed from official wheel${NC}"
+                FLASH_ATTN_INSTALLED=true
+                break
+            fi
+            # Try with cxx11abiTRUE
+            WHEEL_NAME="flash_attn-${FA_VER}+${CUDA_VER}torch${TORCH_VER}cxx11abiTRUE-${PY_VER}-${PY_VER}-linux_x86_64.whl"
+            WHEEL_URL="https://github.com/Dao-AILab/flash-attention/releases/download/v${FA_VER}/${WHEEL_NAME}"
+            if $PYTHON_CMD -m pip install "$WHEEL_URL" 2>/dev/null; then
+                echo -e "${GREEN}✓ flash-attn ${FA_VER} installed from official wheel${NC}"
+                FLASH_ATTN_INSTALLED=true
+                break
+            fi
+        done
+    fi
+
+    if [ "$FLASH_ATTN_INSTALLED" = false ]; then
+        echo -e "${RED}✗ flash-attn installation failed${NC}"
+        echo -e "${RED}  flash-attn is REQUIRED for Qwen3-TTS.${NC}"
+        echo -e "${BLUE}  Manual install options:${NC}"
+        echo -e "${BLUE}    1. Pre-built wheel: visit https://flashattn.dev and download for your config${NC}"
+        echo -e "${BLUE}    2. Build from source: MAX_JOBS=4 pip install flash-attn --no-build-isolation${NC}"
+        echo -e "${BLUE}    3. Check https://github.com/mjun0812/flash-attention-prebuild-wheels/releases${NC}"
+        return 1
+    fi
+
+    return 0
+}
+
 install_qwen3() {
     echo -e "${YELLOW}Installing Qwen3-TTS...${NC}"
     $PYTHON_CMD -m pip install qwen-tts 2>/dev/null && {
@@ -246,26 +347,25 @@ install_qwen3() {
         rm -rf "$TEMP_DIR"
     }
 
-    # Install flash-attn (recommended for Qwen3-TTS performance, not required)
-    # Must use --no-build-isolation because flash-attn needs torch at build time
-    # but doesn't declare it as a build dependency
-    echo -e "${YELLOW}Installing flash-attn (recommended for Qwen3-TTS performance)...${NC}"
-    echo -e "${BLUE}This may take a few minutes to compile...${NC}"
-    MAX_JOBS=4 $PYTHON_CMD -m pip install -U flash-attn --no-build-isolation 2>/dev/null && {
-        echo -e "${GREEN}✓ flash-attn installed${NC}"
-    } || {
-        echo -e "${YELLOW}⚠ flash-attn installation failed (not critical)${NC}"
-        echo -e "${BLUE}  Qwen3-TTS will still work using eager attention (slower).${NC}"
-        echo -e "${BLUE}  To try again later: pip install flash-attn --no-build-isolation${NC}"
-        echo -e "${BLUE}  Requires: compatible GPU + CUDA toolkit + torch already installed.${NC}"
-    }
+    # Install flash-attn (REQUIRED)
+    install_flash_attn
 
-    # Verify installation
-    $PYTHON_CMD -c "from qwen_tts import Qwen3TTSModel; print('  ✓ Qwen3-TTS import successful')" 2>/dev/null || {
-        echo -e "${YELLOW}  Note: Qwen3-TTS import test failed. It may still work at runtime.${NC}"
-    }
-    $PYTHON_CMD -c "import flash_attn; print('  ✓ flash-attn import successful')" 2>/dev/null || {
-        echo -e "${YELLOW}  Note: flash-attn not available. Qwen3-TTS will use eager attention (slower but functional).${NC}"
+    # Verify installation - suppress the qwen_tts flash-attn warning during check
+    $PYTHON_CMD -W ignore -c "
+import warnings, io, sys
+# Suppress all output from qwen_tts import (it prints a flash-attn warning)
+_stderr = sys.stderr
+sys.stderr = io.StringIO()
+try:
+    from qwen_tts import Qwen3TTSModel
+    import flash_attn
+    sys.stderr = _stderr
+    print('  ✓ Qwen3-TTS + flash-attn verified')
+except ImportError as e:
+    sys.stderr = _stderr
+    print(f'  ✗ Import failed: {e}')
+" 2>/dev/null || {
+        echo -e "${RED}  ✗ Qwen3-TTS verification failed${NC}"
     }
     echo
 }
