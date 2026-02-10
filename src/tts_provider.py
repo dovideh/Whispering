@@ -146,15 +146,16 @@ class ChatterboxProvider(BaseTTSProvider):
             except RuntimeError as cuda_err:
                 err_str = str(cuda_err).lower()
                 if load_device == "cuda" and ("cudnn" in err_str or "cuda" in err_str):
-                    # Retry 1: disable cuDNN (uses slower but compatible kernels)
-                    print(f"cuDNN error: {cuda_err}")
-                    print("Retrying with cuDNN disabled...")
+                    # Retry 1: disable cuDNN (uses slower but compatible CUDA kernels)
+                    print(f"CUDA error during model load: {cuda_err}")
+                    print("Disabling cuDNN and retrying on CUDA...")
                     torch.backends.cudnn.enabled = False
                     try:
                         self.model = self._load_model("cuda")
-                    except RuntimeError:
-                        # Retry 2: load on CPU, then move to CUDA
-                        print("Still failing on CUDA. Loading on CPU first...")
+                    except RuntimeError as retry_err:
+                        # Retry 2: fall back to CPU entirely
+                        print(f"CUDA still failing: {retry_err}")
+                        print("Falling back to CPU...")
                         torch.backends.cudnn.enabled = True
                         self.model = self._load_model("cpu")
                         self.device = "cpu"
@@ -204,8 +205,8 @@ class ChatterboxProvider(BaseTTSProvider):
             err_str = str(e).lower()
             if "cudnn" in err_str or "cuda" in err_str:
                 # cuDNN failed during inference — disable it and retry once
-                print(f"cuDNN error during synthesis: {e}")
-                print("Retrying with cuDNN disabled...")
+                print(f"CUDA error during synthesis: {e}")
+                print("Disabling cuDNN and retrying...")
                 torch.backends.cudnn.enabled = False
                 audio = self.model.generate(
                     text=text,

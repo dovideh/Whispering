@@ -136,16 +136,71 @@ if command -v nvidia-smi &> /dev/null; then
     HAS_GPU=true
     echo
 
-    # Auto-install CUDA libraries - check if already present first
-    if $PYTHON_CMD -c "import nvidia.cublas" 2>/dev/null && $PYTHON_CMD -c "import nvidia.cudnn" 2>/dev/null; then
-        echo -e "${GREEN}✓ CUDA libraries already installed${NC}"
+    # Auto-install CUDA libraries that match PyTorch's build.
+    # CRITICAL: version mismatch causes CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH.
+    # We detect the exact cuDNN version PyTorch was compiled with and install that.
+    echo -e "${YELLOW}Checking CUDA library compatibility...${NC}"
+    CUDNN_OK=false
+    CUDNN_MATCH=$($PYTHON_CMD -c "
+import torch, importlib, json, re, sys
+# Get the cuDNN version PyTorch was built with
+built = torch.backends.cudnn.version()  # e.g. 90100 for 9.1.0
+if not built:
+    sys.exit(1)
+major, minor, patch = built // 10000, (built % 10000) // 100, built % 100
+# Check currently installed nvidia-cudnn version
+try:
+    dist = importlib.metadata.distribution('nvidia-cudnn-cu12')
+    installed = dist.version  # e.g. '9.1.0.70'
+    inst_parts = installed.split('.')
+    if int(inst_parts[0]) == major and int(inst_parts[1]) == minor:
+        print('MATCH')
+    else:
+        print(f'{major}.{minor}.{patch}')
+except importlib.metadata.PackageNotFoundError:
+    print(f'{major}.{minor}.{patch}')
+" 2>/dev/null)
+
+    if [ "$CUDNN_MATCH" = "MATCH" ]; then
+        echo -e "${GREEN}✓ CUDA libraries already installed and version-matched${NC}"
+        CUDNN_OK=true
+    elif [ -n "$CUDNN_MATCH" ]; then
+        # Need to install the matching cuDNN version
+        CUDNN_MAJOR_MINOR=$(echo "$CUDNN_MATCH" | cut -d. -f1,2)
+        echo -e "${YELLOW}Installing cuDNN ${CUDNN_MAJOR_MINOR}.x to match PyTorch build...${NC}"
+        # Pin to the major.minor that PyTorch expects
+        $PYTHON_CMD -m pip install "nvidia-cudnn-cu12>=${CUDNN_MAJOR_MINOR}.0,<${CUDNN_MAJOR_MINOR%.*}.$((${CUDNN_MAJOR_MINOR#*.}+1)).0" nvidia-cublas-cu12 --quiet 2>/dev/null && {
+            echo -e "${GREEN}✓ CUDA libraries installed (cuDNN ${CUDNN_MAJOR_MINOR}.x)${NC}"
+            CUDNN_OK=true
+        } || {
+            echo -e "${YELLOW}⚠ Pinned cuDNN install failed. Trying generic...${NC}"
+            $PYTHON_CMD -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 --quiet 2>/dev/null
+        }
     else
-        echo -e "${YELLOW}Installing CUDA libraries for GPU acceleration...${NC}"
+        # No torch or no CUDA build — install generic
+        echo -e "${YELLOW}Installing CUDA libraries...${NC}"
         $PYTHON_CMD -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 --quiet 2>/dev/null && {
             echo -e "${GREEN}✓ CUDA libraries installed${NC}"
         } || {
             echo -e "${YELLOW}⚠ CUDA libraries installation failed (non-critical)${NC}"
             echo -e "${BLUE}  GPU acceleration may still work via system CUDA.${NC}"
+        }
+    fi
+
+    # Verify cuDNN actually works with PyTorch
+    if [ "$CUDNN_OK" = true ]; then
+        $PYTHON_CMD -c "
+import torch
+assert torch.backends.cudnn.is_available(), 'cuDNN not available'
+v = torch.backends.cudnn.version()
+print(f'  cuDNN version: {v // 10000}.{(v % 10000) // 100}.{v % 100}')
+# Quick smoke test: run a small conv on GPU to trigger cuDNN init
+if torch.cuda.is_available():
+    x = torch.randn(1, 1, 8, 8, device='cuda')
+    torch.nn.functional.conv2d(x, torch.randn(1, 1, 3, 3, device='cuda'))
+    print('  cuDNN smoke test: passed')
+" 2>/dev/null || {
+            echo -e "${YELLOW}⚠ cuDNN smoke test failed. TTS will auto-fallback to non-cuDNN mode.${NC}"
         }
     fi
 else
