@@ -429,7 +429,10 @@ except ImportError as e:
 install_kokoro() {
     echo -e "${YELLOW}Installing Kokoro TTS...${NC}"
 
-    # Check for espeak-ng system dependency
+    # Check for espeak-ng system dependency.
+    # On Arch/Manjaro the legacy 'espeak' (1.48) package conflicts with
+    # espeak-ng (1.50+).  phonemizer's "tie" option needs >=1.49, so we
+    # must ensure espeak-ng wins.
     if ! command -v espeak-ng &> /dev/null; then
         echo -e "${YELLOW}espeak-ng not found. Attempting to install...${NC}"
         if command -v apt-get &> /dev/null; then
@@ -440,7 +443,11 @@ install_kokoro() {
                 echo -e "${BLUE}  Please install manually: sudo apt-get install espeak-ng${NC}"
             }
         elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm espeak-ng 2>/dev/null || true
+            # espeak-ng conflicts with legacy espeak; let pacman resolve it
+            sudo pacman -S --noconfirm espeak-ng 2>/dev/null || {
+                echo -e "${YELLOW}⚠ pacman could not install espeak-ng (legacy espeak conflict?)${NC}"
+                echo -e "${BLUE}  Try: sudo pacman -Rdd espeak && sudo pacman -S espeak-ng${NC}"
+            }
         elif command -v dnf &> /dev/null; then
             sudo dnf install -y espeak-ng 2>/dev/null || true
         else

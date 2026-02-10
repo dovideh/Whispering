@@ -655,11 +655,48 @@ class KokoroTTSProvider(BaseTTSProvider):
                     "p": "p"}.get(voice[0], "a")
         return "a"
 
+    @staticmethod
+    def _ensure_espeak_ng():
+        """Point phonemizer at the espeak-ng shared library.
+
+        When both legacy ``espeak`` (≤1.48) and ``espeak-ng`` (≥1.50) are
+        installed, ``ctypes.util.find_library('espeak-ng')`` may return
+        ``None`` (e.g. on Arch/Manjaro where only the .so symlink exists
+        under a non-standard name), causing phonemizer to fall back to the
+        old ``espeak`` which lacks the *tie* option (requires ≥1.49).
+
+        We probe a few common paths and, if found, set
+        ``PHONEMIZER_ESPEAK_LIBRARY`` so phonemizer picks the right one.
+        """
+        if os.environ.get("PHONEMIZER_ESPEAK_LIBRARY"):
+            return  # user already configured
+
+        # ctypes.util.find_library returns the bare filename (or None)
+        lib = ctypes.util.find_library("espeak-ng")
+        if lib:
+            os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = lib
+            return
+
+        # Manual probe for common distro paths
+        candidates = [
+            "/usr/lib/libespeak-ng.so",
+            "/usr/lib/libespeak-ng.so.1",
+            "/usr/lib64/libespeak-ng.so",
+            "/usr/lib64/libespeak-ng.so.1",
+            "/usr/lib/x86_64-linux-gnu/libespeak-ng.so.1",
+            "/usr/lib/aarch64-linux-gnu/libespeak-ng.so.1",
+        ]
+        for path in candidates:
+            if os.path.isfile(path):
+                os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = path
+                return
+
     def _ensure_initialized(self):
         if self._initialized:
             return
 
         try:
+            self._ensure_espeak_ng()
             from kokoro import KPipeline
 
             tts_timer_reset()
