@@ -450,25 +450,57 @@ install_kokoro() {
         echo -e "${GREEN}✓ espeak-ng already installed${NC}"
     fi
 
-    # Pre-install stable spacy to prevent pip from pulling spacy 4.x dev
-    # (misaki[en] → spacy-curated-transformers → spacy, and pip may resolve
-    # to a 4.0.0.devN pre-release that fails to build from source)
-    echo -e "${BLUE}  Pre-installing stable spacy...${NC}"
-    $PYTHON_CMD -m pip install "spacy>=3.7,<4.0.0" --quiet 2>/dev/null || true
+    # kokoro → misaki[en] → spacy-curated-transformers → spacy>=4.0.0dev
+    # spacy 4 doesn't exist as a stable release yet, so pip tries to build
+    # 4.0.0.dev3 from source which fails.
+    #
+    # Strategy:
+    #   1) Try normal pip install with a constraint pinning spacy<4.
+    #   2) If that fails (spacy-curated-transformers needs spacy 4), fall back
+    #      to --no-deps for kokoro and install its runtime deps manually,
+    #      skipping spacy-curated-transformers (espeak-ng handles English G2P).
 
-    # Install kokoro and soundfile
-    $PYTHON_CMD -m pip install kokoro soundfile 2>/dev/null && {
+    KOKORO_INSTALLED=false
+
+    # --- Attempt 1: Normal install with spacy<4 constraint ---
+    echo -e "${YELLOW}  Attempting normal install (constraining spacy<4)...${NC}"
+    CONSTRAINTS=$(mktemp)
+    echo "spacy<4.0.0" > "$CONSTRAINTS"
+    $PYTHON_CMD -m pip install kokoro soundfile -c "$CONSTRAINTS" 2>/dev/null && {
+        KOKORO_INSTALLED=true
         echo -e "${GREEN}✓ Kokoro TTS installed${NC}"
-    } || {
+    }
+    rm -f "$CONSTRAINTS"
+
+    # --- Attempt 2: Manual dep install, skip conflicting spacy-curated-transformers ---
+    if [ "$KOKORO_INSTALLED" = false ]; then
+        echo -e "${YELLOW}  Normal install failed. Installing with manual dependency management...${NC}"
+        # Install kokoro itself without resolving transitive deps
+        $PYTHON_CMD -m pip install kokoro --no-deps --quiet 2>/dev/null
+        # Install its direct runtime deps (torch/numpy/scipy/transformers already present)
+        $PYTHON_CMD -m pip install loguru soundfile --quiet 2>/dev/null
+        # Install misaki without the [en] extra first (base G2P)
+        $PYTHON_CMD -m pip install "misaki>=0.7.4" --quiet 2>/dev/null
+        # Install English G2P extras that don't conflict
+        $PYTHON_CMD -m pip install num2words phonemizer --quiet 2>/dev/null
+        # Verify it actually loads
+        if $PYTHON_CMD -c "from kokoro import KPipeline" 2>/dev/null; then
+            KOKORO_INSTALLED=true
+            echo -e "${GREEN}✓ Kokoro TTS installed (without spacy-curated-transformers)${NC}"
+            echo -e "${BLUE}  Note: English G2P uses espeak-ng as the phonemizer backend.${NC}"
+        fi
+    fi
+
+    if [ "$KOKORO_INSTALLED" = false ]; then
         echo -e "${RED}✗ Failed to install Kokoro TTS${NC}"
         echo -e "${BLUE}  You can try manually:${NC}"
-        echo -e "${BLUE}    $PYTHON_CMD -m pip install 'spacy>=3.7,<4'${NC}"
-        echo -e "${BLUE}    $PYTHON_CMD -m pip install kokoro soundfile${NC}"
-    }
+        echo -e "${BLUE}    $PYTHON_CMD -m pip install kokoro --no-deps${NC}"
+        echo -e "${BLUE}    $PYTHON_CMD -m pip install loguru soundfile 'misaki>=0.7.4' num2words phonemizer${NC}"
+    fi
 
-    # Verify installation
-    $PYTHON_CMD -c "from kokoro import KPipeline; print('  ✓ Kokoro import successful')" 2>/dev/null || {
-        echo -e "${YELLOW}  Note: Kokoro import test failed. It may still work at runtime.${NC}"
+    # Final verification
+    $PYTHON_CMD -c "from kokoro import KPipeline; print('  ✓ Kokoro import verified')" 2>/dev/null || {
+        echo -e "${YELLOW}  ⚠ Kokoro import test failed.${NC}"
     }
     echo
 }
