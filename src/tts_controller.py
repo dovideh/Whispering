@@ -323,13 +323,20 @@ class TTSController:
             )
             self._playback_thread.start()
 
+    # How long (seconds) to wait for more text before starting synthesis.
+    # Longer = fewer synthesis calls (smoother) but more latency.
+    ACCUMULATION_DELAY = 0.5
+
     def _playback_loop(self):
         """Background thread that processes the playback queue.
 
-        Batches all queued text segments into a single synthesis+playback
-        pass to eliminate choppy gaps between segments.
+        Waits briefly after the first item to accumulate more text,
+        then synthesizes and plays in one pass.  This eliminates the
+        choppy gaps that occur when many short segments arrive in
+        rapid succession from the AI processor.
         """
         import sounddevice as sd
+        import time as _time
 
         while not self._playback_stop.is_set():
             try:
@@ -343,9 +350,26 @@ class TTSController:
 
             text, also_save, file_format = item
 
-            # Drain any additional queued items and merge into one text block.
-            # This prevents choppy playback when many short segments arrive
-            # in rapid succession from the AI processor.
+            # Wait a short time for more segments to arrive, then drain.
+            # This gives the AI processor time to push several segments
+            # before we commit to a synthesis call.
+            deadline = _time.monotonic() + self.ACCUMULATION_DELAY
+            while _time.monotonic() < deadline and not self._playback_stop.is_set():
+                remaining = deadline - _time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    extra = self._playback_queue.get(timeout=remaining)
+                except queue.Empty:
+                    break
+                if extra is None:
+                    break
+                extra_text, extra_save, extra_fmt = extra
+                text = text.rstrip() + " " + extra_text.lstrip()
+                also_save = also_save or extra_save
+                file_format = extra_fmt
+
+            # Also drain anything that arrived right at the deadline
             while True:
                 try:
                     extra = self._playback_queue.get_nowait()
@@ -356,7 +380,7 @@ class TTSController:
                 extra_text, extra_save, extra_fmt = extra
                 text = text.rstrip() + " " + extra_text.lstrip()
                 also_save = also_save or extra_save
-                file_format = extra_fmt  # use latest format
+                file_format = extra_fmt
 
             try:
                 self._is_playing = True

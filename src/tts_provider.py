@@ -174,6 +174,10 @@ class ChatterboxProvider(BaseTTSProvider):
             load_device = self.device
             print(f"Loading ChatterboxTTS on {load_device}...")
 
+            # Force eager attention — SDPA doesn't support output_attentions=True
+            # which Chatterbox requires internally for voice reference processing
+            os.environ["TRANSFORMERS_ATTN_IMPLEMENTATION"] = "eager"
+
             if load_device == "cuda":
                 torch.backends.cudnn.enabled = True
                 torch.backends.cudnn.benchmark = True
