@@ -493,6 +493,11 @@ class ProcessingBridge:
             self.tts_session_text = ""
             return
 
+        # Tell the playback loop that no more text is coming so it can
+        # synthesize all accumulated segments in one pass.
+        if self.state.tts_auto_play:
+            self.tts_controller.flush_playback()
+
         # If auto-play was on, segments were already played (and optionally saved)
         # individually. Only save a combined session file if save is on
         # and auto-play was off (meaning segments weren't saved yet).

@@ -70,10 +70,13 @@ class TTSController:
         self.on_error: Optional[Callable[[str], None]] = None
 
         # Playback queue for real-time TTS
-        self._playback_queue: queue.Queue[Optional[str]] = queue.Queue()
+        self._playback_queue: queue.Queue = queue.Queue()
         self._playback_thread: Optional[threading.Thread] = None
         self._playback_stop = threading.Event()
         self._is_playing = False
+
+    # Sentinel pushed by flush_playback() to tell the loop "no more text"
+    _FLUSH = object()
 
     @property
     def is_playing(self) -> bool:
@@ -302,8 +305,10 @@ class TTSController:
     def synthesize_and_play(self, text: str, also_save: bool = False,
                             file_format: str = "wav"):
         """
-        Synthesize text and play it through the speakers.
-        Runs in background - queues the text for sequential playback.
+        Queue text for synthesis + playback.
+
+        Text is accumulated until :meth:`flush_playback` is called (or a
+        safety timeout expires), then synthesized and played in one pass.
 
         Args:
             text: Text to synthesize and play
@@ -323,65 +328,77 @@ class TTSController:
             )
             self._playback_thread.start()
 
-    # How long (seconds) to wait for more text before starting synthesis.
-    # Longer = fewer synthesis calls (smoother) but more latency.
-    ACCUMULATION_DELAY = 0.5
+    def flush_playback(self):
+        """Signal that no more text is coming for the current stream.
+
+        The playback loop will stop waiting and immediately synthesize
+        whatever text it has accumulated so far.
+        """
+        self._playback_queue.put(self._FLUSH)
+
+    # Maximum seconds to wait for a flush before synthesizing anyway.
+    _ACCUMULATION_TIMEOUT = 30.0
 
     def _playback_loop(self):
         """Background thread that processes the playback queue.
 
-        Waits briefly after the first item to accumulate more text,
-        then synthesizes and plays in one pass.  This eliminates the
-        choppy gaps that occur when many short segments arrive in
-        rapid succession from the AI processor.
+        Accumulates all queued text segments until a _FLUSH sentinel
+        arrives (or the safety timeout expires), then synthesizes and
+        plays the combined text in one pass.
         """
         import sounddevice as sd
-        import time as _time
 
         while not self._playback_stop.is_set():
+            # ── Wait for the first text segment ──
             try:
                 item = self._playback_queue.get(timeout=1.0)
             except queue.Empty:
-                # No more items - exit thread
-                break
+                break  # thread idle → exit
 
-            if item is None:
+            if item is None or item is self._FLUSH:
                 break
 
             text, also_save, file_format = item
 
-            # Wait a short time for more segments to arrive, then drain.
-            # This gives the AI processor time to push several segments
-            # before we commit to a synthesis call.
-            deadline = _time.monotonic() + self.ACCUMULATION_DELAY
-            while _time.monotonic() < deadline and not self._playback_stop.is_set():
+            # ── Accumulate until flush / timeout / stop ──
+            import time as _time
+            deadline = _time.monotonic() + self._ACCUMULATION_TIMEOUT
+            flushed = False
+
+            while not self._playback_stop.is_set():
                 remaining = deadline - _time.monotonic()
                 if remaining <= 0:
                     break
                 try:
-                    extra = self._playback_queue.get(timeout=remaining)
+                    extra = self._playback_queue.get(timeout=min(remaining, 1.0))
                 except queue.Empty:
-                    break
+                    continue  # keep waiting
                 if extra is None:
+                    flushed = True
+                    break
+                if extra is self._FLUSH:
+                    flushed = True
                     break
                 extra_text, extra_save, extra_fmt = extra
                 text = text.rstrip() + " " + extra_text.lstrip()
                 also_save = also_save or extra_save
                 file_format = extra_fmt
 
-            # Also drain anything that arrived right at the deadline
-            while True:
-                try:
-                    extra = self._playback_queue.get_nowait()
-                except queue.Empty:
-                    break
-                if extra is None:
-                    break
-                extra_text, extra_save, extra_fmt = extra
-                text = text.rstrip() + " " + extra_text.lstrip()
-                also_save = also_save or extra_save
-                file_format = extra_fmt
+            if not flushed:
+                # Drain anything that arrived right at the deadline
+                while True:
+                    try:
+                        extra = self._playback_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if extra is None or extra is self._FLUSH:
+                        break
+                    extra_text, extra_save, extra_fmt = extra
+                    text = text.rstrip() + " " + extra_text.lstrip()
+                    also_save = also_save or extra_save
+                    file_format = extra_fmt
 
+            # ── Synthesize and play ──
             try:
                 self._is_playing = True
 
