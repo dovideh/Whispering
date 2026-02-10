@@ -660,20 +660,45 @@ class KokoroTTSProvider(BaseTTSProvider):
         We flatten the most common problematic patterns into plain prose
         that the G2P can process safely.
         """
-        # Numbered list markers: "1. Foo" / "1) Foo" → "Foo"
+        # Strip numbered-list / bullet markers, then join the resulting
+        # short lines with commas so "1. Paris\n2. Lyon" → "Paris, Lyon"
+        # rather than the broken "Paris Lyon".
         text = re.sub(r'(?m)^\s*\d+[\.\)]\s*', '', text)
-        # Bullet markers: "- Foo" / "* Foo" / "• Foo"
         text = re.sub(r'(?m)^\s*[-*•]\s+', '', text)
+
+        # Join consecutive short lines (likely list items) with commas;
+        # keep normal prose lines separated by spaces.
+        lines = text.split('\n')
+        merged: list[str] = []
+        list_buf: list[str] = []
+
+        def _flush_list():
+            if list_buf:
+                merged.append(', '.join(list_buf))
+                list_buf.clear()
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                _flush_list()
+                continue
+            # A "list item": short line without sentence-ending punctuation
+            if len(stripped) < 80 and not re.search(r'[.!?]\s*$', stripped):
+                list_buf.append(stripped)
+            else:
+                _flush_list()
+                merged.append(stripped)
+        _flush_list()
+        text = ' '.join(merged)
+
         # Standalone dashes/hyphens used as separators: " - " → ", "
         text = re.sub(r'\s+[-–—]\s+', ', ', text)
-        # Collapse multiple newlines into a single space
-        text = re.sub(r'\n+', ' ', text)
-        # Repeated punctuation: ".." / "!!" / "..." → single
-        text = re.sub(r'([.!?])[.!?\s]+(?=[A-Z\s])', r'\1 ', text)
-        # Stray colons / semicolons before period: ":." → "."
-        text = re.sub(r'[:;]\s*\.', '.', text)
+        # Colons not in time patterns (10:30) → comma for natural speech
+        text = re.sub(r'(?<!\d):(?!\d)', ',', text)
+        # Repeated punctuation: ".." / ",," etc. → single
+        text = re.sub(r'([.!?,])\1+', r'\1', text)
         # Collapse runs of whitespace
-        text = re.sub(r'  +', ' ', text)
+        text = re.sub(r'\s{2,}', ' ', text)
         return text.strip()
 
     @staticmethod
@@ -795,9 +820,21 @@ class KokoroTTSProvider(BaseTTSProvider):
                     if audio is not None and len(audio) > 0:
                         audio_segments.append(audio)
             except (TypeError, ValueError, RuntimeError) as e:
-                tts_log(f"Kokoro G2P warning: skipping segment "
+                # Retry: break the sentence into smaller fragments
+                tts_log(f"Kokoro G2P: retrying in fragments "
                         f"({e}): \"{sentence[:40]}...\"")
-                continue
+                fragments = [f.strip() for f in
+                             re.split(r'[,;]\s*', sentence) if f.strip()]
+                for frag in fragments:
+                    try:
+                        for gs, ps, audio in self._pipeline(
+                                frag, voice=voice, split_pattern=None):
+                            if audio is not None and len(audio) > 0:
+                                audio_segments.append(audio)
+                    except (TypeError, ValueError, RuntimeError):
+                        tts_log(f"Kokoro G2P: skipping fragment "
+                                f"\"{frag[:30]}\"")
+                        continue
 
         if not audio_segments:
             raise RuntimeError("Kokoro produced no audio output")
