@@ -337,14 +337,34 @@ class TTSController:
         self._playback_queue.put(self._FLUSH)
 
     # Maximum seconds to wait for a flush before synthesizing anyway.
-    _ACCUMULATION_TIMEOUT = 30.0
+    _ACCUMULATION_TIMEOUT = 5.0
+
+    def _synthesize_chunks_iter(self, text: str):
+        """Yield (audio_chunk, sample_rate) for each text chunk as it finishes."""
+        chunks = self.chunk_text(text)
+        total = len(chunks)
+        for i, chunk in enumerate(chunks):
+            if self._playback_stop.is_set():
+                return
+            if self.on_progress:
+                self.on_progress(f"Synthesizing chunk {i + 1}/{total}...")
+            audio, sr = self.provider.synthesize(
+                text=chunk,
+                reference_audio_path=self.reference_voice_path,
+                language=self.language,
+                exaggeration=self.exaggeration,
+                cfg=self.cfg,
+                speaker=self.speaker,
+            )
+            yield audio, sr
 
     def _playback_loop(self):
         """Background thread that processes the playback queue.
 
-        Accumulates all queued text segments until a _FLUSH sentinel
-        arrives (or the safety timeout expires), then synthesizes and
-        plays the combined text in one pass.
+        Accumulates queued text segments until a _FLUSH sentinel arrives
+        (or the safety timeout expires), then synthesizes and streams
+        audio chunk-by-chunk — each chunk plays as soon as it's ready
+        instead of waiting for the entire text to be synthesized.
         """
         import sounddevice as sd
 
@@ -370,7 +390,7 @@ class TTSController:
                 if remaining <= 0:
                     break
                 try:
-                    extra = self._playback_queue.get(timeout=min(remaining, 1.0))
+                    extra = self._playback_queue.get(timeout=min(remaining, 0.5))
                 except queue.Empty:
                     continue  # keep waiting
                 if extra is None:
@@ -398,39 +418,57 @@ class TTSController:
                     also_save = also_save or extra_save
                     file_format = extra_fmt
 
-            # ── Synthesize and play ──
+            # ── Synthesize chunk-by-chunk and stream audio ──
             try:
                 self._is_playing = True
+                stream = None
+                all_segments = []  # collected for file save
 
-                if self.on_progress:
-                    self.on_progress("Synthesizing...")
+                for audio_chunk, sample_rate in self._synthesize_chunks_iter(text):
+                    if self._playback_stop.is_set():
+                        break
 
-                result = self.synthesize_to_array(text)
-                if result is None:
-                    continue
+                    # Ensure float32, mono, column-vector for sounddevice
+                    audio_chunk = np.asarray(audio_chunk, dtype=np.float32)
+                    if audio_chunk.ndim > 1:
+                        audio_chunk = audio_chunk.flatten()
 
-                audio, sample_rate = result
+                    if also_save:
+                        all_segments.append(audio_chunk)
 
-                if self._playback_stop.is_set():
-                    break
+                    # Open the output stream on first chunk (now we know the sample rate)
+                    if stream is None:
+                        stream = sd.OutputStream(
+                            samplerate=sample_rate,
+                            channels=1,
+                            dtype="float32",
+                            blocksize=2048,
+                            latency="low",
+                        )
+                        stream.start()
+                        if self.on_progress:
+                            self.on_progress("Playing...")
 
-                # Save to file if requested
-                if also_save:
+                    # write() blocks until the device has consumed the data,
+                    # so the next chunk synthesizes while this one finishes playing.
+                    stream.write(audio_chunk.reshape(-1, 1))
+
+                # Wait for the remaining audio in the buffer to finish
+                if stream is not None:
+                    stream.stop()
+                    stream.close()
+
+                # Save combined audio to file if requested
+                if also_save and all_segments:
                     import time
                     timestamp = time.strftime("%Y%m%d_%H%M%S")
                     filename = f"tts_{timestamp}"
                     output_path = self.output_dir / f"{filename}.{file_format}"
-                    sf.write(str(output_path), audio, sample_rate,
+                    full_audio = np.concatenate(all_segments) if len(all_segments) > 1 else all_segments[0]
+                    sf.write(str(output_path), full_audio, sample_rate,
                              format=file_format.upper())
                     if self.on_complete:
                         self.on_complete(str(output_path))
-
-                # Play audio
-                if self.on_progress:
-                    self.on_progress("Playing...")
-
-                sd.play(audio, sample_rate)
-                sd.wait()
 
                 if self.on_progress:
                     self.on_progress("")
@@ -441,6 +479,13 @@ class TTSController:
                     self.on_error(error_msg)
                 else:
                     print(error_msg)
+                # Clean up stream on error
+                if stream is not None:
+                    try:
+                        stream.abort()
+                        stream.close()
+                    except Exception:
+                        pass
             finally:
                 self._is_playing = False
 
