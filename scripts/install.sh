@@ -450,12 +450,20 @@ install_kokoro() {
         echo -e "${GREEN}✓ espeak-ng already installed${NC}"
     fi
 
+    # Pre-install stable spacy to prevent pip from pulling spacy 4.x dev
+    # (misaki[en] → spacy-curated-transformers → spacy, and pip may resolve
+    # to a 4.0.0.devN pre-release that fails to build from source)
+    echo -e "${BLUE}  Pre-installing stable spacy...${NC}"
+    $PYTHON_CMD -m pip install "spacy>=3.7,<4.0.0" --quiet 2>/dev/null || true
+
     # Install kokoro and soundfile
     $PYTHON_CMD -m pip install kokoro soundfile 2>/dev/null && {
         echo -e "${GREEN}✓ Kokoro TTS installed${NC}"
     } || {
         echo -e "${RED}✗ Failed to install Kokoro TTS${NC}"
-        echo -e "${BLUE}  You can try manually: $PYTHON_CMD -m pip install kokoro soundfile${NC}"
+        echo -e "${BLUE}  You can try manually:${NC}"
+        echo -e "${BLUE}    $PYTHON_CMD -m pip install 'spacy>=3.7,<4'${NC}"
+        echo -e "${BLUE}    $PYTHON_CMD -m pip install kokoro soundfile${NC}"
     }
 
     # Verify installation
