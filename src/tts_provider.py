@@ -404,6 +404,11 @@ class Qwen3TTSProvider(BaseTTSProvider):
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = compute_dtype
+            # Also pass torch_dtype — qwen_tts consumes `dtype` but
+            # transformers/Flash Attention 2 needs `torch_dtype` to avoid
+            # "attempting to use Flash Attention 2 without specifying a
+            # torch dtype" warnings and potential incorrect inference dtype.
+            kwargs["torch_dtype"] = compute_dtype
 
             # flash-attn is required
             try:
@@ -417,7 +422,10 @@ class Qwen3TTSProvider(BaseTTSProvider):
                     "Or use a pre-built wheel from https://github.com/mjun0812/flash-attention-prebuild-wheels/releases"
                 )
 
-            self.model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
+            # Suppress qwen_tts deprecation warning about torch_dtype
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated")
+                self.model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             self._initialized = True
             tts_log(f"Qwen3-TTS loaded on {self.device}")
 
@@ -448,9 +456,12 @@ class Qwen3TTSProvider(BaseTTSProvider):
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = compute_dtype
+            kwargs["torch_dtype"] = compute_dtype
             kwargs["attn_implementation"] = "flash_attention_2"
 
-            self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*torch_dtype.*deprecated")
+                self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             tts_log("Qwen3-TTS clone model loaded")
 
         except ImportError as e:
@@ -461,6 +472,17 @@ class Qwen3TTSProvider(BaseTTSProvider):
             ) from e
         except Exception as e:
             raise RuntimeError(f"Failed to load Qwen3-TTS clone model: {e}") from e
+
+    def _max_tokens_for_text(self, text: str) -> int:
+        """Estimate a reasonable max_new_tokens cap for the given text.
+
+        At 12Hz, 1 token ≈ 83ms of audio.  English speech is roughly
+        15 chars/second, so we allow 3× that duration (for pauses,
+        slow speech, etc.) clamped to [120, 2048].
+        """
+        estimated_seconds = max(len(text) / 15.0 * 3.0, 10.0)
+        tokens = int(estimated_seconds * 12)  # 12Hz tokenizer
+        return max(120, min(tokens, 2048))
 
     def _resample(self, audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
         """Resample audio from orig_sr to target_sr."""
@@ -504,15 +526,16 @@ class Qwen3TTSProvider(BaseTTSProvider):
         if not speaker:
             speaker = _QWEN3_DEFAULT_SPEAKERS.get(language, self.default_speaker)
 
+        max_tok = self._max_tokens_for_text(text)
         tts_log(f"Qwen3 synthesize (custom_voice, speaker={speaker}): "
-                f"{len(text)} chars \"{text[:60]}...\"")
+                f"{len(text)} chars, max_tokens={max_tok} \"{text[:60]}...\"")
 
         wavs, sr = self.model.generate_custom_voice(
             text=text,
             language=language,
             speaker=speaker,
             instruct="",
-            max_new_tokens=2048,
+            max_new_tokens=max_tok,
         )
         tts_log(f"Qwen3 generate_custom_voice returned (sr={sr})")
 
@@ -534,15 +557,16 @@ class Qwen3TTSProvider(BaseTTSProvider):
     ) -> tuple[np.ndarray, int]:
         self._ensure_clone_model()
 
+        max_tok = self._max_tokens_for_text(text)
         tts_log(f"Qwen3 synthesize (voice_clone): "
-                f"{len(text)} chars \"{text[:60]}...\"")
+                f"{len(text)} chars, max_tokens={max_tok} \"{text[:60]}...\"")
 
         wavs, sr = self._clone_model.generate_voice_clone(
             text=text,
             language=language,
             ref_audio=ref_audio_path,
             ref_text="",  # Qwen3 can work without ref_text
-            max_new_tokens=2048,
+            max_new_tokens=max_tok,
         )
         tts_log(f"Qwen3 generate_voice_clone returned (sr={sr})")
 
