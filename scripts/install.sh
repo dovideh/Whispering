@@ -42,14 +42,23 @@ for arg in "$@"; do
     esac
 done
 
-# Check Python version
-echo -e "${YELLOW}Checking Python version...${NC}"
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Error: python3 not found. Please install Python 3.8 or higher.${NC}"
+# Detect a usable Python command (python3, python, or whatever the venv exposes)
+PYTHON_CMD=""
+for cmd in python3 python; do
+    if command -v "$cmd" &> /dev/null; then
+        PYTHON_CMD="$cmd"
+        break
+    fi
+done
+
+if [ -z "$PYTHON_CMD" ]; then
+    echo -e "${RED}Error: python3/python not found. Please install Python 3.8 or higher.${NC}"
     exit 1
 fi
 
-PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
+# Check Python version
+echo -e "${YELLOW}Checking Python version...${NC}"
+PYTHON_VERSION=$($PYTHON_CMD --version | cut -d' ' -f2)
 PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d'.' -f1)
 PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d'.' -f2)
 
@@ -58,44 +67,63 @@ if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" 
     exit 1
 fi
 
-echo -e "${GREEN}✓ Python $PYTHON_VERSION found${NC}"
+echo -e "${GREEN}✓ Python $PYTHON_VERSION found (${PYTHON_CMD})${NC}"
 echo
 
-# Check for pip
+# Create virtual environment (skip if one is already active)
+if [ -n "$VIRTUAL_ENV" ]; then
+    echo -e "${BLUE}Virtual environment already active: $VIRTUAL_ENV${NC}"
+elif [ -n "$CONDA_PREFIX" ]; then
+    echo -e "${BLUE}Conda environment already active: $CONDA_PREFIX${NC}"
+else
+    echo -e "${YELLOW}Creating virtual environment...${NC}"
+    if [ -d ".venv" ]; then
+        echo -e "${BLUE}Virtual environment already exists. Activating it.${NC}"
+    else
+        $PYTHON_CMD -m venv .venv
+        echo -e "${GREEN}✓ Virtual environment created${NC}"
+    fi
+    echo
+
+    # Activate virtual environment
+    echo -e "${YELLOW}Activating virtual environment...${NC}"
+    source .venv/bin/activate
+    echo -e "${GREEN}✓ Virtual environment activated${NC}"
+fi
+echo
+
+# After venv is active, prefer 'python' (the venv binary)
+for cmd in python python3; do
+    if command -v "$cmd" &> /dev/null; then
+        PYTHON_CMD="$cmd"
+        break
+    fi
+done
+
+# Check for pip (now inside the venv)
 echo -e "${YELLOW}Checking for pip...${NC}"
-if ! python3 -m pip --version &> /dev/null; then
-    echo -e "${RED}Error: pip not found. Please install pip first.${NC}"
-    exit 1
+if ! $PYTHON_CMD -m pip --version &> /dev/null; then
+    echo -e "${YELLOW}pip not found in environment. Installing pip...${NC}"
+    $PYTHON_CMD -m ensurepip --default-pip 2>/dev/null || {
+        echo -e "${RED}Error: Could not install pip. Please install pip manually:${NC}"
+        echo -e "${RED}  $PYTHON_CMD -m ensurepip --default-pip${NC}"
+        echo -e "${RED}  or: curl -sS https://bootstrap.pypa.io/get-pip.py | $PYTHON_CMD${NC}"
+        exit 1
+    }
 fi
 echo -e "${GREEN}✓ pip found${NC}"
 echo
 
-# Create virtual environment
-echo -e "${YELLOW}Creating virtual environment...${NC}"
-if [ -d ".venv" ]; then
-    echo -e "${BLUE}Virtual environment already exists. Skipping creation.${NC}"
-else
-    python3 -m venv .venv
-    echo -e "${GREEN}✓ Virtual environment created${NC}"
-fi
-echo
-
-# Activate virtual environment
-echo -e "${YELLOW}Activating virtual environment...${NC}"
-source .venv/bin/activate
-echo -e "${GREEN}✓ Virtual environment activated${NC}"
-echo
-
 # Upgrade pip
 echo -e "${YELLOW}Upgrading pip...${NC}"
-python -m pip install --upgrade pip --quiet
+$PYTHON_CMD -m pip install --upgrade pip --quiet
 echo -e "${GREEN}✓ pip upgraded${NC}"
 echo
 
 # Install base requirements
 echo -e "${YELLOW}Installing base requirements...${NC}"
 echo -e "${BLUE}This may take a few minutes...${NC}"
-pip install -r requirements.txt
+$PYTHON_CMD -m pip install -r requirements.txt
 echo -e "${GREEN}✓ Base requirements installed${NC}"
 echo
 
@@ -111,7 +139,7 @@ if command -v nvidia-smi &> /dev/null; then
     read -r response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
         echo -e "${YELLOW}Installing CUDA libraries...${NC}"
-        pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+        $PYTHON_CMD -m pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
         echo -e "${GREEN}✓ CUDA libraries installed${NC}"
     else
         echo -e "${BLUE}Skipping CUDA libraries. You can install them later with:${NC}"
@@ -166,14 +194,14 @@ install_chatterbox() {
     fi
 
     # Install chatterbox without dependencies (deps already in requirements.txt)
-    pip install chatterbox-tts --no-deps 2>/dev/null && {
+    $PYTHON_CMD -m pip install chatterbox-tts --no-deps 2>/dev/null && {
         echo -e "${GREEN}✓ Chatterbox TTS installed${NC}"
     } || {
         echo -e "${YELLOW}pip install failed. Trying source installation...${NC}"
         # Fallback: clone and install from source
         TEMP_DIR=$(mktemp -d)
         git clone --depth 1 https://github.com/resemble-ai/chatterbox "$TEMP_DIR/chatterbox" 2>/dev/null && {
-            pip install --no-deps -e "$TEMP_DIR/chatterbox" 2>/dev/null && {
+            $PYTHON_CMD -m pip install --no-deps -e "$TEMP_DIR/chatterbox" 2>/dev/null && {
                 echo -e "${GREEN}✓ Chatterbox TTS installed from source${NC}"
             } || {
                 # Last resort: copy the module directly
@@ -182,7 +210,7 @@ install_chatterbox() {
                     echo -e "${GREEN}✓ Chatterbox TTS module copied to src/${NC}"
                 else
                     echo -e "${RED}✗ Failed to install Chatterbox TTS${NC}"
-                    echo -e "${BLUE}  You can try manually: pip install chatterbox-tts --no-deps${NC}"
+                    echo -e "${BLUE}  You can try manually: $PYTHON_CMD -m pip install chatterbox-tts --no-deps${NC}"
                 fi
             }
         } || {
@@ -192,7 +220,7 @@ install_chatterbox() {
     }
 
     # Verify installation
-    python -c "from chatterbox.tts import ChatterboxTTS; print('  ✓ Chatterbox import successful')" 2>/dev/null || {
+    $PYTHON_CMD -c "from chatterbox.tts import ChatterboxTTS; print('  ✓ Chatterbox import successful')" 2>/dev/null || {
         echo -e "${YELLOW}  Note: Chatterbox import test failed. It may still work at runtime.${NC}"
     }
     echo
@@ -200,17 +228,17 @@ install_chatterbox() {
 
 install_qwen3() {
     echo -e "${YELLOW}Installing Qwen3-TTS...${NC}"
-    pip install qwen-tts 2>/dev/null && {
+    $PYTHON_CMD -m pip install qwen-tts 2>/dev/null && {
         echo -e "${GREEN}✓ Qwen3-TTS installed${NC}"
     } || {
         echo -e "${YELLOW}pip install failed. Trying from source...${NC}"
         TEMP_DIR=$(mktemp -d)
         git clone --depth 1 https://github.com/QwenLM/Qwen3-TTS.git "$TEMP_DIR/qwen3-tts" 2>/dev/null && {
-            pip install -e "$TEMP_DIR/qwen3-tts" 2>/dev/null && {
+            $PYTHON_CMD -m pip install -e "$TEMP_DIR/qwen3-tts" 2>/dev/null && {
                 echo -e "${GREEN}✓ Qwen3-TTS installed from source${NC}"
             } || {
                 echo -e "${RED}✗ Failed to install Qwen3-TTS${NC}"
-                echo -e "${BLUE}  You can try manually: pip install qwen-tts${NC}"
+                echo -e "${BLUE}  You can try manually: $PYTHON_CMD -m pip install qwen-tts${NC}"
             }
         } || {
             echo -e "${RED}✗ Failed to clone Qwen3-TTS repository${NC}"
@@ -224,7 +252,7 @@ install_qwen3() {
     read -r flash_response
     if [[ "$flash_response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
         echo -e "${YELLOW}Installing flash-attn...${NC}"
-        MAX_JOBS=4 pip install -U flash-attn --no-build-isolation 2>/dev/null && {
+        MAX_JOBS=4 $PYTHON_CMD -m pip install -U flash-attn --no-build-isolation 2>/dev/null && {
             echo -e "${GREEN}✓ flash-attn installed${NC}"
         } || {
             echo -e "${YELLOW}  flash-attn installation failed (optional - TTS will still work)${NC}"
@@ -232,7 +260,7 @@ install_qwen3() {
     fi
 
     # Verify installation
-    python -c "from qwen_tts import Qwen3TTSModel; print('  ✓ Qwen3-TTS import successful')" 2>/dev/null || {
+    $PYTHON_CMD -c "from qwen_tts import Qwen3TTSModel; print('  ✓ Qwen3-TTS import successful')" 2>/dev/null || {
         echo -e "${YELLOW}  Note: Qwen3-TTS import test failed. It may still work at runtime.${NC}"
     }
     echo
@@ -297,7 +325,7 @@ fi
 
 # Verify TTS status
 echo -e "${YELLOW}Checking TTS backend status...${NC}"
-python -c "
+cd "$PROJECT_DIR/src" && $PYTHON_CMD -c "
 from tts_provider import get_available_backends
 backends = get_available_backends()
 for name, avail in backends.items():
@@ -305,7 +333,7 @@ for name, avail in backends.items():
     print(f'  {name}: {status}')
 if not any(backends.values()):
     print('  No TTS backends available. Install with: ./scripts/install.sh --tts')
-" 2>/dev/null || echo -e "${YELLOW}  Could not check TTS status (run from src/ directory)${NC}"
+" 2>/dev/null && cd "$PROJECT_DIR" || { cd "$PROJECT_DIR"; echo -e "${YELLOW}  Could not check TTS status${NC}"; }
 echo
 
 # Installation complete
