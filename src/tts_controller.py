@@ -19,6 +19,8 @@ from tts_provider import (
     BaseTTSProvider,
     create_provider,
     get_available_backends,
+    tts_log,
+    tts_timer_reset,
 )
 
 
@@ -81,6 +83,12 @@ class TTSController:
     @property
     def is_playing(self) -> bool:
         return self._is_playing
+
+    def _log(self, msg: str):
+        """Log to terminal (with timestamp/delta) AND to the GUI callback."""
+        tts_log(msg)
+        if self.on_progress:
+            self.on_progress(msg)
 
     def set_reference_voice(self, audio_path: Optional[str]):
         """Set reference voice for voice cloning."""
@@ -211,18 +219,13 @@ class TTSController:
     ) -> Optional[str]:
         """Worker function for synthesis (can run async)."""
         try:
-            if self.on_progress:
-                self.on_progress("Chunking text...")
-
             chunks = self.chunk_text(text)
-
-            if self.on_progress:
-                self.on_progress(f"Synthesizing {len(chunks)} chunk(s)...")
+            tts_timer_reset()
+            self._log(f"Synthesizing {len(chunks)} chunk(s) to file...")
 
             audio_segments = []
             for i, chunk in enumerate(chunks):
-                if self.on_progress:
-                    self.on_progress(f"Chunk {i+1}/{len(chunks)}: {chunk[:50]}...")
+                self._log(f"Chunk {i+1}/{len(chunks)} ({len(chunk)} chars)...")
 
                 audio, sr = self.provider.synthesize(
                     text=chunk,
@@ -240,9 +243,7 @@ class TTSController:
                 full_audio = audio_segments[0]
 
             output_path = self.output_dir / f"{output_filename}.{file_format}"
-
-            if self.on_progress:
-                self.on_progress(f"Saving to {output_path}...")
+            self._log(f"Saving to {output_path}...")
 
             sf.write(
                 str(output_path),
@@ -251,6 +252,7 @@ class TTSController:
                 format=file_format.upper(),
             )
 
+            self._log(f"Saved {output_path}")
             if self.on_complete:
                 self.on_complete(str(output_path))
 
@@ -258,10 +260,9 @@ class TTSController:
 
         except Exception as e:
             error_msg = f"TTS synthesis failed: {e}"
+            tts_log(error_msg)
             if self.on_error:
                 self.on_error(error_msg)
-            else:
-                print(error_msg)
             return None
 
     def synthesize_to_array(self, text: str) -> Optional[tuple[np.ndarray, int]]:
@@ -343,11 +344,12 @@ class TTSController:
         """Yield (audio_chunk, sample_rate) for each text chunk as it finishes."""
         chunks = self.chunk_text(text)
         total = len(chunks)
+        tts_timer_reset()
+        self._log(f"Starting synthesis: {len(text)} chars, {total} chunk(s)")
         for i, chunk in enumerate(chunks):
             if self._playback_stop.is_set():
                 return
-            if self.on_progress:
-                self.on_progress(f"Synthesizing chunk {i + 1}/{total}...")
+            self._log(f"Synthesizing chunk {i + 1}/{total} ({len(chunk)} chars)...")
             audio, sr = self.provider.synthesize(
                 text=chunk,
                 reference_audio_path=self.reference_voice_path,
@@ -356,6 +358,8 @@ class TTSController:
                 cfg=self.cfg,
                 speaker=self.speaker,
             )
+            dur = len(audio) / sr
+            self._log(f"Chunk {i + 1}/{total} done ({dur:.1f}s audio)")
             yield audio, sr
 
     def _playback_loop(self):
@@ -446,8 +450,7 @@ class TTSController:
                             latency="low",
                         )
                         stream.start()
-                        if self.on_progress:
-                            self.on_progress("Playing...")
+                        self._log("Playing...")
 
                     # write() blocks until the device has consumed the data,
                     # so the next chunk synthesizes while this one finishes playing.
@@ -470,15 +473,15 @@ class TTSController:
                     if self.on_complete:
                         self.on_complete(str(output_path))
 
+                self._log("Playback complete")
                 if self.on_progress:
                     self.on_progress("")
 
             except Exception as e:
                 error_msg = f"TTS playback error: {e}"
+                tts_log(error_msg)
                 if self.on_error:
                     self.on_error(error_msg)
-                else:
-                    print(error_msg)
                 # Clean up stream on error
                 if stream is not None:
                     try:

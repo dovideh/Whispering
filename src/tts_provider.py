@@ -8,6 +8,7 @@ Supports ChatterboxTTS and Qwen3-TTS with graceful fallback.
 import ctypes
 import glob
 import os
+import time as _time
 import warnings
 from typing import Optional, Literal
 
@@ -17,6 +18,41 @@ import torch
 # Suppress warnings during model loading
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
+
+
+# ---------------------------------------------------------------------------
+# Timestamped TTS logger — prints to terminal with wall-clock + delta
+# ---------------------------------------------------------------------------
+
+class _TTSTimer:
+    """Lightweight logger that prefixes every message with a wall-clock
+    timestamp and the seconds elapsed since the previous log call."""
+
+    def __init__(self):
+        self._last = _time.monotonic()
+
+    def log(self, msg: str) -> str:
+        """Print *msg* to terminal with ``[TTS HH:MM:SS.mmm +Δs]`` prefix.
+
+        Returns *msg* unchanged so callers can forward it to the GUI.
+        """
+        now_mono = _time.monotonic()
+        delta = now_mono - self._last
+        self._last = now_mono
+        now_wall = _time.time()
+        ts = _time.strftime("%H:%M:%S", _time.localtime(now_wall))
+        ms = f".{int((now_wall % 1) * 1000):03d}"
+        print(f"[TTS {ts}{ms} +{delta:.1f}s] {msg}")
+        return msg
+
+    def reset(self):
+        """Reset the delta clock (e.g. at the start of a new synthesis)."""
+        self._last = _time.monotonic()
+
+
+_tts_timer = _TTSTimer()
+tts_log = _tts_timer.log
+tts_timer_reset = _tts_timer.reset
 
 
 def _fix_cudnn_library_path():
@@ -197,7 +233,8 @@ class ChatterboxProvider(BaseTTSProvider):
 
         try:
             load_device = self.device
-            print(f"Loading ChatterboxTTS on {load_device}...")
+            tts_timer_reset()
+            tts_log(f"Loading ChatterboxTTS on {load_device}...")
 
             # Force eager attention — SDPA doesn't support output_attentions=True
             # which Chatterbox requires internally for voice reference processing.
@@ -220,15 +257,15 @@ class ChatterboxProvider(BaseTTSProvider):
                     self.model = self._load_model("cuda")
                 except (RuntimeError, OSError) as cuda_err:
                     # Retry 1: disable cuDNN entirely
-                    print(f"CUDA error during model load: {cuda_err}")
-                    print("Disabling cuDNN and retrying on CUDA...")
+                    tts_log(f"CUDA error during model load: {cuda_err}")
+                    tts_log("Disabling cuDNN and retrying on CUDA...")
                     torch.backends.cudnn.enabled = False
                     try:
                         self.model = self._load_model("cuda")
                     except (RuntimeError, OSError) as retry_err:
                         # Retry 2: fall back to CPU
-                        print(f"CUDA still failing: {retry_err}")
-                        print("Falling back to CPU (model will run slower)...")
+                        tts_log(f"CUDA still failing: {retry_err}")
+                        tts_log("Falling back to CPU (model will run slower)...")
                         torch.backends.cudnn.enabled = True
                         self.model = self._load_model("cpu")
                         self.device = "cpu"
@@ -236,7 +273,7 @@ class ChatterboxProvider(BaseTTSProvider):
                 self.model = self._load_model(load_device)
 
             self._initialized = True
-            print(f"ChatterboxTTS loaded on {self.device}")
+            tts_log(f"ChatterboxTTS loaded on {self.device}")
 
         except ImportError as e:
             raise ImportError(
@@ -273,14 +310,14 @@ class ChatterboxProvider(BaseTTSProvider):
             cfg_weight=cfg,
             temperature=0.8,
         )
+        tts_log(f"Chatterbox synthesize: {len(text)} chars \"{text[:60]}...\"")
         try:
             audio = self.model.generate(**generate_kwargs)
         except (RuntimeError, OSError) as e:
             err_str = str(e).lower()
             if "cudnn" in err_str or "cuda" in err_str:
-                # cuDNN/CUDA failed during inference — disable cuDNN and retry
-                print(f"CUDA error during synthesis: {e}")
-                print("Disabling cuDNN and retrying...")
+                tts_log(f"CUDA error during synthesis: {e}")
+                tts_log("Disabling cuDNN and retrying...")
                 torch.backends.cudnn.enabled = False
                 audio = self.model.generate(**generate_kwargs)
             else:
@@ -291,6 +328,8 @@ class ChatterboxProvider(BaseTTSProvider):
         if len(audio.shape) > 1:
             audio = audio.flatten()
 
+        dur = len(audio) / self.sample_rate
+        tts_log(f"Chatterbox synthesis done: {len(audio)} samples, {dur:.1f}s audio")
         return audio, self.sample_rate
 
 
@@ -359,7 +398,8 @@ class Qwen3TTSProvider(BaseTTSProvider):
                 _sys.stdout, _sys.stderr = _old_stdout, _old_stderr
 
             model_name = self._get_model_name(clone=False)
-            print(f"Loading Qwen3-TTS ({model_name}) on {self.device}...")
+            tts_timer_reset()
+            tts_log(f"Loading Qwen3-TTS ({model_name}) on {self.device}...")
 
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
@@ -379,7 +419,7 @@ class Qwen3TTSProvider(BaseTTSProvider):
 
             self.model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             self._initialized = True
-            print(f"Qwen3-TTS loaded on {self.device}")
+            tts_log(f"Qwen3-TTS loaded on {self.device}")
 
         except ImportError as e:
             raise ImportError(str(e)) from e
@@ -403,7 +443,7 @@ class Qwen3TTSProvider(BaseTTSProvider):
             import flash_attn  # noqa: F401
 
             model_name = self._get_model_name(clone=True)
-            print(f"Loading Qwen3-TTS clone model ({model_name})...")
+            tts_log(f"Loading Qwen3-TTS clone model ({model_name})...")
 
             compute_dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
@@ -411,7 +451,7 @@ class Qwen3TTSProvider(BaseTTSProvider):
             kwargs["attn_implementation"] = "flash_attention_2"
 
             self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
-            print("Qwen3-TTS clone model loaded")
+            tts_log("Qwen3-TTS clone model loaded")
 
         except ImportError as e:
             raise ImportError(
@@ -464,12 +504,17 @@ class Qwen3TTSProvider(BaseTTSProvider):
         if not speaker:
             speaker = _QWEN3_DEFAULT_SPEAKERS.get(language, self.default_speaker)
 
+        tts_log(f"Qwen3 synthesize (custom_voice, speaker={speaker}): "
+                f"{len(text)} chars \"{text[:60]}...\"")
+
         wavs, sr = self.model.generate_custom_voice(
             text=text,
             language=language,
             speaker=speaker,
             instruct="",
+            max_new_tokens=2048,
         )
+        tts_log(f"Qwen3 generate_custom_voice returned (sr={sr})")
 
         audio = wavs[0]
         if isinstance(audio, torch.Tensor):
@@ -480,6 +525,8 @@ class Qwen3TTSProvider(BaseTTSProvider):
         # Resample to 24kHz for consistent output
         audio = self._resample(audio, sr, self.sample_rate)
 
+        dur = len(audio) / self.sample_rate
+        tts_log(f"Qwen3 synthesis done: {len(audio)} samples, {dur:.1f}s audio")
         return audio, self.sample_rate
 
     def _synthesize_clone(
@@ -487,12 +534,17 @@ class Qwen3TTSProvider(BaseTTSProvider):
     ) -> tuple[np.ndarray, int]:
         self._ensure_clone_model()
 
+        tts_log(f"Qwen3 synthesize (voice_clone): "
+                f"{len(text)} chars \"{text[:60]}...\"")
+
         wavs, sr = self._clone_model.generate_voice_clone(
             text=text,
             language=language,
             ref_audio=ref_audio_path,
             ref_text="",  # Qwen3 can work without ref_text
+            max_new_tokens=2048,
         )
+        tts_log(f"Qwen3 generate_voice_clone returned (sr={sr})")
 
         audio = wavs[0]
         if isinstance(audio, torch.Tensor):
@@ -502,6 +554,8 @@ class Qwen3TTSProvider(BaseTTSProvider):
 
         audio = self._resample(audio, sr, self.sample_rate)
 
+        dur = len(audio) / self.sample_rate
+        tts_log(f"Qwen3 clone done: {len(audio)} samples, {dur:.1f}s audio")
         return audio, self.sample_rate
 
     def unload(self):
