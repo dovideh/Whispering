@@ -85,21 +85,22 @@ The installer automatically detects your GPU, installs cuDNN libraries matching 
 
 ### Running the App
 
-**Modern UI (Recommended)**
+**GUI (Recommended)**
 A responsive, dark-themed web interface built with NiceGUI.
 ```bash
-./scripts/run_nicegui.sh
+./scripts/run.sh
+# or: ./scripts/run_nicegui.sh
 ```
 
-**Legacy GUI**
-Classic desktop interface (Tkinter).
+**CLI (Terminal UI)**
+Curses-based terminal interface with AI, voice commands, auto-stop, and session logging.
 ```bash
-./scripts/run_tkinter.sh
+python src/tui.py --help
 ```
 
 ## Interface Guide
 
-The Modern UI is divided into a control sidebar and dynamic output panels ("Whisper", "AI", "Translation").
+The GUI is divided into a control sidebar and dynamic output panels ("Whisper", "AI", "Translation").
 
 - **Microphone**: Select your input device and monitor audio levels.
 - **Model Settings**: Choose Whisper model size (Tiny to Large-v3) and device (CUDA/CPU).
@@ -175,10 +176,11 @@ Whispering/
 ├── logs/                       # Session logs organized by date
 ├── scripts/                    # Install & Run scripts
 ├── src/
-│   ├── whispering_ui/          # Modern NiceGUI Application
+│   ├── whispering_ui/          # NiceGUI Application (GUI)
 │   │   ├── components/         # UI Widgets (Sidebar, Output, Help)
 │   │   ├── bridge.py           # UI <-> Core Logic Bridge
 │   │   └── main.py             # App Entry Point
+│   ├── tui.py                  # Terminal User Interface (CLI)
 │   ├── core_parts/             # Audio Device & Signal Processing
 │   ├── ai_provider.py          # OpenRouter AI Integration
 │   ├── commands_config.py      # Voice commands YAML loader

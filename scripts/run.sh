@@ -1,10 +1,15 @@
 #!/bin/bash
+# Run Whispering with NiceGUI interface (default launcher)
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Prefer PulseAudio/PipeWire over ALSA for audio
 export SDL_AUDIODRIVER=pulse
 
-source "$PROJECT_DIR/.venv/bin/activate"
+# Activate virtual environment if it exists
+if [ -d "$PROJECT_DIR/.venv" ]; then
+    source "$PROJECT_DIR/.venv/bin/activate"
+fi
 
 # Ensure all NVIDIA/cuDNN libraries load from the SAME pip package to prevent
 # CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH. This must happen BEFORE Python
@@ -22,11 +27,18 @@ if [ -n "$NVIDIA_LIBS" ]; then
     export LD_LIBRARY_PATH="$NVIDIA_LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 
+# Check if NiceGUI is installed
+if ! python3 -c "import nicegui" 2>/dev/null; then
+    echo "Error: NiceGUI is not installed."
+    echo "Please install dependencies:"
+    echo "  $PROJECT_DIR/.venv/bin/python3 -m pip install nicegui pyperclip"
+    exit 1
+fi
+
 # Add src to Python path
 export PYTHONPATH="$PROJECT_DIR/src:$PYTHONPATH"
 
-# Debug mode: uncomment to see full errors
-# python "$PROJECT_DIR/src/gui.py" "$@"
-
-# Production mode: filter ALSA noise
-python "$PROJECT_DIR/src/gui.py" "$@" 2> >(grep -v "^ALSA lib\|^Expression '" >&2)
+# Change to src directory and run
+cd "$PROJECT_DIR/src"
+echo "Starting Whispering with NiceGUI interface..."
+python3 whispering_ui/main.py "$@"
