@@ -47,6 +47,7 @@ class TTSController:
         model_type: Literal["standard", "multilingual"] = "standard",
         qwen3_model_size: str = "1.7B",
         qwen3_speaker: str = "Ryan",
+        kokoro_voice: str = "af_heart",
     ):
         self.backend = backend
         self.output_dir = Path(output_dir)
@@ -58,6 +59,7 @@ class TTSController:
             model_type=model_type,
             qwen3_model_size=qwen3_model_size,
             qwen3_speaker=qwen3_speaker,
+            kokoro_voice=kokoro_voice,
         )
 
         self.reference_voice_path: Optional[str] = None
@@ -116,6 +118,7 @@ class TTSController:
         model_type: str = "standard",
         qwen3_model_size: str = "1.7B",
         qwen3_speaker: str = "Ryan",
+        kokoro_voice: str = "af_heart",
     ):
         """Switch to a different TTS backend. Unloads the current provider."""
         if self.provider:
@@ -128,6 +131,7 @@ class TTSController:
             model_type=model_type,
             qwen3_model_size=qwen3_model_size,
             qwen3_speaker=qwen3_speaker,
+            kokoro_voice=kokoro_voice,
         )
 
     def chunk_text(self, text: str) -> list[str]:

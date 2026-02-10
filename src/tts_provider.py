@@ -2,7 +2,7 @@
 
 """
 TTS Provider module with multi-backend support.
-Supports ChatterboxTTS and Qwen3-TTS with graceful fallback.
+Supports ChatterboxTTS, Qwen3-TTS, and Kokoro with graceful fallback.
 """
 
 import builtins
@@ -128,6 +128,13 @@ def get_available_backends() -> dict[str, bool]:
         backends["qwen3"] = True
     except (ImportError, ModuleNotFoundError, Exception):
         backends["qwen3"] = False
+
+    # Check Kokoro TTS
+    try:
+        from kokoro import KPipeline  # noqa: F401
+        backends["kokoro"] = True
+    except (ImportError, ModuleNotFoundError, Exception):
+        backends["kokoro"] = False
 
     return backends
 
@@ -604,6 +611,129 @@ class Qwen3TTSProvider(BaseTTSProvider):
 
 
 # ---------------------------------------------------------------------------
+# Kokoro TTS provider
+# ---------------------------------------------------------------------------
+
+KOKORO_VOICES = [
+    # American English - Female (best: af_heart)
+    "af_heart", "af_bella", "af_nicole", "af_alloy", "af_aoede",
+    "af_kore", "af_sarah", "af_nova", "af_jessica", "af_river", "af_sky",
+    # American English - Male
+    "am_fenrir", "am_michael", "am_puck", "am_echo", "am_eric",
+    "am_liam", "am_onyx", "am_adam",
+    # British English - Female (best: bf_emma)
+    "bf_emma", "bf_isabella", "bf_alice", "bf_lily",
+    # British English - Male
+    "bm_fable", "bm_george", "bm_daniel", "bm_lewis",
+]
+
+
+class KokoroTTSProvider(BaseTTSProvider):
+    """Kokoro TTS provider — lightweight 82M parameter model.
+
+    Uses the ``kokoro`` package (``KPipeline``) for synthesis.
+    Outputs 24 kHz audio.  Requires ``espeak-ng`` system package.
+    """
+
+    def __init__(
+        self,
+        device: Literal["cpu", "cuda", "auto"] = "auto",
+        default_voice: str = "af_heart",
+    ):
+        super().__init__(device)
+        self.sample_rate = 24000
+        self.default_voice = default_voice
+        self._pipeline = None
+        self._current_lang: str = ""
+
+    @staticmethod
+    def _voice_to_lang(voice: str) -> str:
+        """Derive Kokoro lang_code from the voice ID prefix."""
+        if voice and len(voice) >= 1:
+            return {"a": "a", "b": "b", "j": "j", "z": "z",
+                    "e": "e", "f": "f", "h": "h", "i": "i",
+                    "p": "p"}.get(voice[0], "a")
+        return "a"
+
+    def _ensure_initialized(self):
+        if self._initialized:
+            return
+
+        try:
+            from kokoro import KPipeline
+
+            tts_timer_reset()
+            tts_log(f"Loading Kokoro TTS on {self.device}...")
+
+            lang_code = self._voice_to_lang(self.default_voice)
+            self._pipeline = KPipeline(lang_code=lang_code)
+            self._current_lang = lang_code
+            self._initialized = True
+            tts_log("Kokoro TTS loaded")
+
+        except ImportError as e:
+            raise ImportError(
+                "Kokoro TTS is not installed.\n"
+                "Install with: pip install kokoro soundfile\n"
+                "System dependency: apt-get install espeak-ng\n"
+                "Or run: ./scripts/install.sh --tts=kokoro"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to load Kokoro TTS: {e}") from e
+
+    def synthesize(
+        self,
+        text: str,
+        reference_audio_path: Optional[str] = None,
+        language: str = "en",
+        exaggeration: float = 0.5,
+        cfg: float = 0.5,
+        speaker: str = "",
+    ) -> tuple[np.ndarray, int]:
+        if not text.strip():
+            raise ValueError("Cannot synthesize empty text")
+
+        self._ensure_initialized()
+
+        voice = speaker if speaker else self.default_voice
+
+        # Recreate pipeline if the voice language changed
+        lang_code = self._voice_to_lang(voice)
+        if lang_code != self._current_lang:
+            from kokoro import KPipeline
+            self._pipeline = KPipeline(lang_code=lang_code)
+            self._current_lang = lang_code
+
+        tts_log(f"Kokoro synthesize (voice={voice}): "
+                f"{len(text)} chars \"{text[:60]}...\"")
+
+        audio_segments = []
+        for gs, ps, audio in self._pipeline(text, voice=voice):
+            if audio is not None and len(audio) > 0:
+                audio_segments.append(audio)
+
+        if not audio_segments:
+            raise RuntimeError("Kokoro produced no audio output")
+
+        full_audio = (np.concatenate(audio_segments)
+                      if len(audio_segments) > 1 else audio_segments[0])
+        if isinstance(full_audio, torch.Tensor):
+            full_audio = full_audio.cpu().numpy()
+        if len(full_audio.shape) > 1:
+            full_audio = full_audio.flatten()
+
+        dur = len(full_audio) / self.sample_rate
+        tts_log(f"Kokoro synthesis done: {len(full_audio)} samples, {dur:.1f}s audio")
+        return full_audio, self.sample_rate
+
+    def unload(self):
+        if self._pipeline is not None:
+            del self._pipeline
+            self._pipeline = None
+        super().unload()
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -613,16 +743,18 @@ def create_provider(
     model_type: str = "standard",
     qwen3_model_size: str = "1.7B",
     qwen3_speaker: str = "Ryan",
+    kokoro_voice: str = "af_heart",
 ) -> BaseTTSProvider:
     """
     Create a TTS provider for the given backend.
 
     Args:
-        backend: "chatterbox" or "qwen3"
+        backend: "chatterbox", "qwen3", or "kokoro"
         device: Compute device
         model_type: Chatterbox model type ("standard" or "multilingual")
         qwen3_model_size: Qwen3 model size ("0.6B" or "1.7B")
         qwen3_speaker: Default Qwen3 speaker name
+        kokoro_voice: Default Kokoro voice ID (e.g. "af_heart")
 
     Returns:
         TTS provider instance
@@ -632,6 +764,11 @@ def create_provider(
             device=device,
             model_size=qwen3_model_size,
             default_speaker=qwen3_speaker,
+        )
+    elif backend == "kokoro":
+        return KokoroTTSProvider(
+            device=device,
+            default_voice=kokoro_voice,
         )
     else:
         return ChatterboxProvider(device=device, model_type=model_type)
@@ -663,3 +800,4 @@ if __name__ == "__main__":
         print("\nNo TTS backends installed. Install one with:")
         print("  pip install chatterbox-tts --no-deps")
         print("  pip install qwen-tts")
+        print("  pip install kokoro soundfile")

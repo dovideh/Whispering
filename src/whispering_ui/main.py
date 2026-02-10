@@ -107,6 +107,7 @@ def main():
         state.tts_format = settings.get("tts_format", "wav")
         state.tts_qwen3_speaker = settings.get("tts_qwen3_speaker", "Ryan")
         state.tts_qwen3_model_size = settings.get("tts_qwen3_model_size", "1.7B")
+        state.tts_kokoro_voice = settings.get("tts_kokoro_voice", "af_heart")
 
         # If saved backend is not installed, fall back to first available
         if not backends.get(state.tts_backend):
@@ -128,6 +129,7 @@ def main():
             print("  Install with: ./scripts/install.sh --tts")
             print("  Or manually: pip install chatterbox-tts --no-deps")
             print("              pip install qwen-tts")
+            print("              pip install kokoro soundfile")
     except Exception as e:
         print(f"TTS features not available: {e}")
         state.tts_available = False
@@ -146,6 +148,7 @@ def main():
                 backend=state.tts_backend,
                 qwen3_model_size=state.tts_qwen3_model_size,
                 qwen3_speaker=state.tts_qwen3_speaker,
+                kokoro_voice=state.tts_kokoro_voice,
             )
             # Wire up status callbacks
             bridge.tts_controller.on_progress = lambda msg: setattr(state, 'tts_status_message', msg)
@@ -405,6 +408,7 @@ def main():
             settings.set("tts_format", state.tts_format)
             settings.set("tts_qwen3_speaker", state.tts_qwen3_speaker)
             settings.set("tts_qwen3_model_size", state.tts_qwen3_model_size)
+            settings.set("tts_kokoro_voice", state.tts_kokoro_voice)
 
         settings.save()
 

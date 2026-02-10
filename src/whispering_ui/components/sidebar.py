@@ -562,7 +562,7 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                         ui.label('Engine:').classes('text-xs w-10')
                         # Build backend options with availability labels
                         backend_options = {}
-                        for bname in ["chatterbox", "qwen3"]:
+                        for bname in ["chatterbox", "qwen3", "kokoro"]:
                             installed = state.tts_backends_available.get(bname, False)
                             if installed:
                                 backend_options[bname] = bname
@@ -588,10 +588,12 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                                         backend=selected,
                                         qwen3_model_size=state.tts_qwen3_model_size,
                                         qwen3_speaker=state.tts_qwen3_speaker,
+                                        kokoro_voice=state.tts_kokoro_voice,
                                     )
                                 state.tts_status_message = ""
-                            # Show/hide Qwen3 options
+                            # Show/hide backend-specific options
                             qwen3_row.set_visibility(selected == "qwen3")
+                            kokoro_row.set_visibility(selected == "kokoro")
 
                         tts_backend_select.on_value_change(on_backend_change)
 
@@ -635,6 +637,25 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                                 )
 
                         qwen3_size_select.on_value_change(on_size_change)
+
+                    # Kokoro-specific options (voice selection)
+                    kokoro_row = ui.row().classes('items-center w-full gap-1')
+                    kokoro_row.set_visibility(state.tts_backend == "kokoro")
+
+                    with kokoro_row:
+                        ui.label('Voice:').classes('text-xs')
+                        from tts_provider import KOKORO_VOICES
+                        kokoro_voice_select = register_tts(ui.select(
+                            options=KOKORO_VOICES,
+                            value=state.tts_kokoro_voice
+                        ).classes('flex-grow').props('dense'))
+
+                        def on_kokoro_voice_change(e):
+                            state.tts_kokoro_voice = e.value
+                            if bridge.tts_controller:
+                                bridge.tts_controller.set_parameters(speaker=e.value)
+
+                        kokoro_voice_select.on_value_change(on_kokoro_voice_change)
 
                     # Source selection - compact
                     with ui.row().classes('items-center w-full gap-1'):

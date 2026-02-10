@@ -54,6 +54,7 @@ class AppState:
     tts_is_playing: bool = False  # TTS audio playback state
     tts_qwen3_speaker: str = "Ryan"  # Qwen3-TTS speaker name
     tts_qwen3_model_size: str = "1.7B"  # Qwen3 model size ("0.6B" or "1.7B")
+    tts_kokoro_voice: str = "af_heart"  # Kokoro voice ID
     tts_backends_available: dict = field(default_factory=dict)  # {name: bool}
 
     # === Autotype Settings ===

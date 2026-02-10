@@ -35,6 +35,7 @@ for arg in "$@"; do
             echo "  --tts              Install TTS backends (interactive selection)"
             echo "  --tts=chatterbox   Install Chatterbox TTS backend"
             echo "  --tts=qwen3        Install Qwen3-TTS backend"
+            echo "  --tts=kokoro       Install Kokoro TTS backend (lightweight 82M model)"
             echo "  --tts=all          Install all TTS backends"
             echo "  -h, --help         Show this help message"
             exit 0
@@ -425,6 +426,45 @@ except ImportError as e:
     echo
 }
 
+install_kokoro() {
+    echo -e "${YELLOW}Installing Kokoro TTS...${NC}"
+
+    # Check for espeak-ng system dependency
+    if ! command -v espeak-ng &> /dev/null; then
+        echo -e "${YELLOW}espeak-ng not found. Attempting to install...${NC}"
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get install -y espeak-ng 2>/dev/null && {
+                echo -e "${GREEN}✓ espeak-ng installed${NC}"
+            } || {
+                echo -e "${YELLOW}⚠ Could not install espeak-ng automatically.${NC}"
+                echo -e "${BLUE}  Please install manually: sudo apt-get install espeak-ng${NC}"
+            }
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm espeak-ng 2>/dev/null || true
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y espeak-ng 2>/dev/null || true
+        else
+            echo -e "${YELLOW}⚠ Please install espeak-ng manually for your distribution.${NC}"
+        fi
+    else
+        echo -e "${GREEN}✓ espeak-ng already installed${NC}"
+    fi
+
+    # Install kokoro and soundfile
+    $PYTHON_CMD -m pip install kokoro soundfile 2>/dev/null && {
+        echo -e "${GREEN}✓ Kokoro TTS installed${NC}"
+    } || {
+        echo -e "${RED}✗ Failed to install Kokoro TTS${NC}"
+        echo -e "${BLUE}  You can try manually: $PYTHON_CMD -m pip install kokoro soundfile${NC}"
+    }
+
+    # Verify installation
+    $PYTHON_CMD -c "from kokoro import KPipeline; print('  ✓ Kokoro import successful')" 2>/dev/null || {
+        echo -e "${YELLOW}  Note: Kokoro import test failed. It may still work at runtime.${NC}"
+    }
+    echo
+}
+
 # Handle TTS installation
 if [ "$INSTALL_TTS" = true ]; then
     echo -e "${BLUE}========================================${NC}"
@@ -440,13 +480,17 @@ if [ "$INSTALL_TTS" = true ]; then
             qwen3)
                 install_qwen3
                 ;;
+            kokoro)
+                install_kokoro
+                ;;
             all)
                 install_chatterbox
                 install_qwen3
+                install_kokoro
                 ;;
             *)
                 echo -e "${RED}Unknown TTS backend: $TTS_BACKEND${NC}"
-                echo -e "${BLUE}Available: chatterbox, qwen3, all${NC}"
+                echo -e "${BLUE}Available: chatterbox, qwen3, kokoro, all${NC}"
                 ;;
         esac
     else
@@ -454,10 +498,11 @@ if [ "$INSTALL_TTS" = true ]; then
         echo -e "${YELLOW}Which TTS backend(s) would you like to install?${NC}"
         echo "  1) Chatterbox TTS (ResembleAI - voice cloning, English)"
         echo "  2) Qwen3-TTS (Alibaba - multilingual, 10 languages, multiple voices)"
-        echo "  3) Both"
-        echo "  4) Skip TTS installation"
+        echo "  3) Kokoro TTS (lightweight 82M model, fast, 54 voices, 9 languages)"
+        echo "  4) All"
+        echo "  5) Skip TTS installation"
         echo
-        read -r -p "Select (1-4): " tts_choice
+        read -r -p "Select (1-5): " tts_choice
 
         case $tts_choice in
             1)
@@ -467,10 +512,14 @@ if [ "$INSTALL_TTS" = true ]; then
                 install_qwen3
                 ;;
             3)
+                install_kokoro
+                ;;
+            4)
                 install_chatterbox
                 install_qwen3
+                install_kokoro
                 ;;
-            4|*)
+            5|*)
                 echo -e "${BLUE}Skipping TTS installation.${NC}"
                 echo -e "${BLUE}You can install later with: ./scripts/install.sh --tts${NC}"
                 ;;
@@ -511,6 +560,7 @@ echo -e "  - For TTS: ${GREEN}./scripts/install.sh --tts${NC}"
 echo -e "    Or install individually:"
 echo -e "    - Chatterbox: ${GREEN}pip install chatterbox-tts --no-deps${NC}"
 echo -e "    - Qwen3-TTS: ${GREEN}pip install qwen-tts${NC}"
+echo -e "    - Kokoro:     ${GREEN}pip install kokoro soundfile${NC} (+ apt install espeak-ng)"
 echo
 echo -e "${YELLOW}Note: Remember to activate the virtual environment before running:${NC}"
 echo -e "${GREEN}  source .venv/bin/activate${NC}"
