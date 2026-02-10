@@ -87,17 +87,43 @@ def main():
 
     # Check TTS availability
     try:
+        from tts_provider import get_available_backends
         from tts_controller import TTSController
-        state.tts_available = True
 
-        # Load TTS settings
-        state.tts_enabled = settings.get("tts_enabled", False)
-        state.tts_source = settings.get("tts_source", "whisper")
-        state.tts_save_file = settings.get("tts_save_file", False)
-        state.tts_format = settings.get("tts_format", "wav")
+        backends = get_available_backends()
+        state.tts_backends_available = backends
+        state.tts_available = any(backends.values())
+
+        if state.tts_available:
+            # Load TTS settings
+            state.tts_enabled = settings.get("tts_enabled", False)
+            state.tts_backend = settings.get("tts_backend", "chatterbox")
+            state.tts_source = settings.get("tts_source", "whisper")
+            state.tts_auto_play = settings.get("tts_auto_play", True)
+            state.tts_save_file = settings.get("tts_save_file", False)
+            state.tts_format = settings.get("tts_format", "wav")
+            state.tts_qwen3_speaker = settings.get("tts_qwen3_speaker", "Ryan")
+            state.tts_qwen3_model_size = settings.get("tts_qwen3_model_size", "1.7B")
+
+            # If saved backend is not installed, fall back to first available
+            if not backends.get(state.tts_backend):
+                for name, avail in backends.items():
+                    if avail:
+                        state.tts_backend = name
+                        break
+
+            # Print backend status
+            for name, avail in backends.items():
+                status = "available" if avail else "not installed"
+                print(f"  TTS backend {name}: {status}")
+        else:
+            print("No TTS backends installed. TTS features disabled.")
+            print("  Install Chatterbox: pip install chatterbox-tts --no-deps")
+            print("  Install Qwen3-TTS: pip install qwen-tts")
     except Exception as e:
         print(f"TTS features not available: {e}")
         state.tts_available = False
+        state.tts_backends_available = {}
 
     # Create processing bridge
     bridge = ProcessingBridge(state)
@@ -106,7 +132,16 @@ def main():
     if state.tts_available:
         try:
             from tts_controller import TTSController
-            bridge.tts_controller = TTSController(device="auto", output_dir="tts_output")
+            bridge.tts_controller = TTSController(
+                device="auto",
+                output_dir="tts_output",
+                backend=state.tts_backend,
+                qwen3_model_size=state.tts_qwen3_model_size,
+                qwen3_speaker=state.tts_qwen3_speaker,
+            )
+            # Wire up status callbacks
+            bridge.tts_controller.on_progress = lambda msg: setattr(state, 'tts_status_message', msg)
+            bridge.tts_controller.on_error = lambda msg: setattr(state, 'tts_status_message', msg)
         except Exception as e:
             print(f"Failed to initialize TTS controller: {e}")
             state.tts_available = False
@@ -356,9 +391,13 @@ def main():
 
         if state.tts_available:
             settings.set("tts_enabled", state.tts_enabled)
+            settings.set("tts_backend", state.tts_backend)
             settings.set("tts_source", state.tts_source)
+            settings.set("tts_auto_play", state.tts_auto_play)
             settings.set("tts_save_file", state.tts_save_file)
             settings.set("tts_format", state.tts_format)
+            settings.set("tts_qwen3_speaker", state.tts_qwen3_speaker)
+            settings.set("tts_qwen3_model_size", state.tts_qwen3_model_size)
 
         settings.save()
 

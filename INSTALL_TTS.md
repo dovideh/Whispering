@@ -1,71 +1,106 @@
 # TTS Installation Guide
 
-## Standard Installation (Recommended)
+Whispering supports two TTS backends. Install one or both.
 
-This is the correct installation process to avoid the pkuseg dependency conflict:
+## Quick Install (Recommended)
+
+Use the install script with the `--tts` flag:
 
 ```bash
-# Step 1: Install all dependencies from requirements.txt
+# Interactive - choose which backend(s) to install
+./scripts/install.sh --tts
+
+# Or install a specific backend directly
+./scripts/install.sh --tts=chatterbox
+./scripts/install.sh --tts=qwen3
+./scripts/install.sh --tts=all
+```
+
+## Manual Installation
+
+### Option A: Qwen3-TTS (Recommended for multilingual)
+
+Supports 10 languages (English, Chinese, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian) with 9 built-in voices and voice cloning.
+
+```bash
+# Activate your virtual environment first
+source .venv/bin/activate
+
+# Install Qwen3-TTS
+pip install qwen-tts
+
+# Optional: faster inference with flash attention
+MAX_JOBS=4 pip install -U flash-attn --no-build-isolation
+
+# Verify
+python -c "from qwen_tts import Qwen3TTSModel; print('Qwen3-TTS OK')"
+```
+
+### Option B: Chatterbox TTS (ResembleAI)
+
+English-focused with voice cloning support. Requires special handling on Python 3.12+.
+
+```bash
+# Activate your virtual environment first
+source .venv/bin/activate
+
+# Step 1: Install dependencies (already done if you ran install.sh)
 pip install -r requirements.txt
 
-# Step 2: Install chatterbox-tts WITHOUT its dependencies
-# (we already installed the correct versions in step 1)
+# Step 2: Install chatterbox WITHOUT its dependencies
+# (avoids the pkuseg/distutils conflict on Python 3.12+)
 pip install chatterbox-tts --no-deps
 
-# Step 3: Test if it works
-python -c "from chatterbox.tts import ChatterboxTTS; print('✓ ChatterboxTTS loaded successfully!')"
+# Verify
+python -c "from chatterbox.tts import ChatterboxTTS; print('Chatterbox OK')"
 ```
 
-**Why this works:**
-- `requirements.txt` has all the individual components chatterbox needs (torch, transformers, etc.)
-- We install chatterbox-tts with `--no-deps` so it doesn't pull in conflicting versions (like pkuseg)
-- You get full control over dependency versions
-
-## Option 2: If Option 1 fails - Manual source installation
+**If `pip install chatterbox-tts --no-deps` fails:**
 
 ```bash
-# Clone the chatterbox source
+# Install from source
 git clone https://github.com/resemble-ai/chatterbox /tmp/chatterbox
-cd /tmp/chatterbox
-
-# Edit setup.py or pyproject.toml to remove pkuseg from dependencies
-# Then install
-pip install -e .
+pip install --no-deps -e /tmp/chatterbox
 ```
 
-## Option 3: Copy source directly into project
+## Selecting a Backend in the UI
+
+1. Open the **AI & TTS** panel (click the "AI & TTS" button)
+2. Enable TTS with the checkbox
+3. Under **Engine**, select either `chatterbox` or `qwen3`
+4. For Qwen3: choose a **Speaker** and **Model Size**
+5. Check **Play** to hear audio through speakers in real time
+6. Check **Save** to also save audio files to `tts_output/`
+
+## Audio Playback
+
+When **Play** is enabled, TTS output is played through your speakers in real time as text is transcribed. This works with all TTS sources (Whisper, AI, Translation).
+
+The playback uses a queue so segments are played sequentially without blocking.
+
+## Troubleshooting
+
+### Python 3.12+ distutils error (Chatterbox)
+
+If you see `ModuleNotFoundError: No module named 'distutils'`:
+- Use `pip install chatterbox-tts --no-deps` (already handled by install.sh)
+- Or switch to Qwen3-TTS which doesn't have this issue
+
+### No audio output
+
+- Check that `sounddevice` is installed: `pip install sounddevice`
+- Check your system audio output device
+- Try: `python -c "import sounddevice; print(sounddevice.query_devices())"`
+
+### GPU/CUDA errors
+
+- Run `python debug_cuda.py` for diagnostics
+- Ensure PyTorch CUDA version matches your GPU driver
+- For CPU mode, the app will auto-detect and fall back
+
+## Checking Backend Status
 
 ```bash
-# Clone chatterbox repo
-git clone https://github.com/resemble-ai/chatterbox /tmp/chatterbox
-
-# Copy just the chatterbox module into your project
-cp -r /tmp/chatterbox/chatterbox ./
-
-# Now you can import it directly without pip install
+cd src/
+python -c "from tts_provider import get_available_backends; print(get_available_backends())"
 ```
-
-## Option 4: Alternative TTS (if chatterbox doesn't work)
-
-If chatterbox proves too difficult, we can switch to **Coqui TTS**:
-
-```bash
-pip install TTS
-```
-
-Usage:
-```python
-from TTS.api import TTS
-tts = TTS("tts_models/en/ljspeech/tacotron2-DDC")
-tts.tts_to_file(text="Hello world", file_path="output.wav")
-```
-
-## Testing
-
-After installation, test with:
-
-```bash
-python tts_provider.py
-```
-
-This should synthesize a test phrase and show success.

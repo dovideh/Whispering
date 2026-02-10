@@ -42,7 +42,9 @@ class AppState:
 
     # === TTS Settings ===
     tts_enabled: bool = False
+    tts_backend: str = "chatterbox"  # "chatterbox" or "qwen3"
     tts_source: str = "whisper"  # "whisper", "ai", or "translation"
+    tts_auto_play: bool = True  # Auto-play TTS output through speakers
     tts_save_file: bool = False
     tts_format: str = "wav"
     tts_voice_reference: Optional[str] = None
@@ -50,6 +52,9 @@ class AppState:
     tts_status_message: str = ""  # TTS status message
     tts_audio_file: Optional[str] = None  # Current TTS audio file for playback
     tts_is_playing: bool = False  # TTS audio playback state
+    tts_qwen3_speaker: str = "Ryan"  # Qwen3-TTS speaker name
+    tts_qwen3_model_size: str = "1.7B"  # Qwen3 model size ("0.6B" or "1.7B")
+    tts_backends_available: dict = field(default_factory=dict)  # {name: bool}
 
     # === Autotype Settings ===
     autotype_mode: str = "Off"  # "Off", "Whisper", "Translation", "AI"

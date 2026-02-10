@@ -16,6 +16,32 @@ echo -e "${BLUE}Whispering Installation Script${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo
 
+# Parse arguments
+INSTALL_TTS=false
+TTS_BACKEND=""
+for arg in "$@"; do
+    case $arg in
+        --tts)
+            INSTALL_TTS=true
+            ;;
+        --tts=*)
+            INSTALL_TTS=true
+            TTS_BACKEND="${arg#*=}"
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --tts              Install TTS backends (interactive selection)"
+            echo "  --tts=chatterbox   Install Chatterbox TTS backend"
+            echo "  --tts=qwen3        Install Qwen3-TTS backend"
+            echo "  --tts=all          Install all TTS backends"
+            echo "  -h, --help         Show this help message"
+            exit 0
+            ;;
+    esac
+done
+
 # Check Python version
 echo -e "${YELLOW}Checking Python version...${NC}"
 if ! command -v python3 &> /dev/null; then
@@ -100,6 +126,7 @@ echo
 echo -e "${YELLOW}Creating project directories...${NC}"
 mkdir -p log_output
 mkdir -p tts_output
+mkdir -p tts_voices
 echo -e "${GREEN}✓ Directories created${NC}"
 echo
 
@@ -121,8 +148,164 @@ echo
 # Make scripts executable
 echo -e "${YELLOW}Making scripts executable...${NC}"
 chmod +x scripts/run.sh
-chmod +x scripts/debug_env.sh
+chmod +x scripts/debug_env.sh 2>/dev/null || true
 echo -e "${GREEN}✓ Scripts are executable${NC}"
+echo
+
+# ========================================
+# TTS Installation
+# ========================================
+
+install_chatterbox() {
+    echo -e "${YELLOW}Installing Chatterbox TTS...${NC}"
+    echo -e "${BLUE}Note: Chatterbox requires specific dependency handling.${NC}"
+
+    # Check Python version for distutils compatibility
+    if [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -ge 12 ]; then
+        echo -e "${YELLOW}Python $PYTHON_VERSION detected. Using --no-deps to avoid distutils issues.${NC}"
+    fi
+
+    # Install chatterbox without dependencies (deps already in requirements.txt)
+    pip install chatterbox-tts --no-deps 2>/dev/null && {
+        echo -e "${GREEN}✓ Chatterbox TTS installed${NC}"
+    } || {
+        echo -e "${YELLOW}pip install failed. Trying source installation...${NC}"
+        # Fallback: clone and install from source
+        TEMP_DIR=$(mktemp -d)
+        git clone --depth 1 https://github.com/resemble-ai/chatterbox "$TEMP_DIR/chatterbox" 2>/dev/null && {
+            pip install --no-deps -e "$TEMP_DIR/chatterbox" 2>/dev/null && {
+                echo -e "${GREEN}✓ Chatterbox TTS installed from source${NC}"
+            } || {
+                # Last resort: copy the module directly
+                if [ -d "$TEMP_DIR/chatterbox/chatterbox" ]; then
+                    cp -r "$TEMP_DIR/chatterbox/chatterbox" "$PROJECT_DIR/src/"
+                    echo -e "${GREEN}✓ Chatterbox TTS module copied to src/${NC}"
+                else
+                    echo -e "${RED}✗ Failed to install Chatterbox TTS${NC}"
+                    echo -e "${BLUE}  You can try manually: pip install chatterbox-tts --no-deps${NC}"
+                fi
+            }
+        } || {
+            echo -e "${RED}✗ Failed to clone Chatterbox repository${NC}"
+        }
+        rm -rf "$TEMP_DIR"
+    }
+
+    # Verify installation
+    python -c "from chatterbox.tts import ChatterboxTTS; print('  ✓ Chatterbox import successful')" 2>/dev/null || {
+        echo -e "${YELLOW}  Note: Chatterbox import test failed. It may still work at runtime.${NC}"
+    }
+    echo
+}
+
+install_qwen3() {
+    echo -e "${YELLOW}Installing Qwen3-TTS...${NC}"
+    pip install qwen-tts 2>/dev/null && {
+        echo -e "${GREEN}✓ Qwen3-TTS installed${NC}"
+    } || {
+        echo -e "${YELLOW}pip install failed. Trying from source...${NC}"
+        TEMP_DIR=$(mktemp -d)
+        git clone --depth 1 https://github.com/QwenLM/Qwen3-TTS.git "$TEMP_DIR/qwen3-tts" 2>/dev/null && {
+            pip install -e "$TEMP_DIR/qwen3-tts" 2>/dev/null && {
+                echo -e "${GREEN}✓ Qwen3-TTS installed from source${NC}"
+            } || {
+                echo -e "${RED}✗ Failed to install Qwen3-TTS${NC}"
+                echo -e "${BLUE}  You can try manually: pip install qwen-tts${NC}"
+            }
+        } || {
+            echo -e "${RED}✗ Failed to clone Qwen3-TTS repository${NC}"
+        }
+        rm -rf "$TEMP_DIR"
+    }
+
+    # Optional: flash attention for faster inference
+    echo -e "${YELLOW}Do you want to install flash-attn for faster Qwen3-TTS inference? (y/N)${NC}"
+    echo -e "${BLUE}(Requires a compatible GPU and may take a while to compile)${NC}"
+    read -r flash_response
+    if [[ "$flash_response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+        echo -e "${YELLOW}Installing flash-attn...${NC}"
+        MAX_JOBS=4 pip install -U flash-attn --no-build-isolation 2>/dev/null && {
+            echo -e "${GREEN}✓ flash-attn installed${NC}"
+        } || {
+            echo -e "${YELLOW}  flash-attn installation failed (optional - TTS will still work)${NC}"
+        }
+    fi
+
+    # Verify installation
+    python -c "from qwen_tts import Qwen3TTSModel; print('  ✓ Qwen3-TTS import successful')" 2>/dev/null || {
+        echo -e "${YELLOW}  Note: Qwen3-TTS import test failed. It may still work at runtime.${NC}"
+    }
+    echo
+}
+
+# Handle TTS installation
+if [ "$INSTALL_TTS" = true ]; then
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}TTS Backend Installation${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo
+
+    if [ -n "$TTS_BACKEND" ]; then
+        case $TTS_BACKEND in
+            chatterbox)
+                install_chatterbox
+                ;;
+            qwen3)
+                install_qwen3
+                ;;
+            all)
+                install_chatterbox
+                install_qwen3
+                ;;
+            *)
+                echo -e "${RED}Unknown TTS backend: $TTS_BACKEND${NC}"
+                echo -e "${BLUE}Available: chatterbox, qwen3, all${NC}"
+                ;;
+        esac
+    else
+        # Interactive TTS selection
+        echo -e "${YELLOW}Which TTS backend(s) would you like to install?${NC}"
+        echo "  1) Chatterbox TTS (ResembleAI - voice cloning, English)"
+        echo "  2) Qwen3-TTS (Alibaba - multilingual, 10 languages, multiple voices)"
+        echo "  3) Both"
+        echo "  4) Skip TTS installation"
+        echo
+        read -r -p "Select (1-4): " tts_choice
+
+        case $tts_choice in
+            1)
+                install_chatterbox
+                ;;
+            2)
+                install_qwen3
+                ;;
+            3)
+                install_chatterbox
+                install_qwen3
+                ;;
+            4|*)
+                echo -e "${BLUE}Skipping TTS installation.${NC}"
+                echo -e "${BLUE}You can install later with: ./scripts/install.sh --tts${NC}"
+                ;;
+        esac
+    fi
+else
+    echo -e "${BLUE}TTS backends not installed by default.${NC}"
+    echo -e "${BLUE}To install TTS, run: ./scripts/install.sh --tts${NC}"
+    echo
+fi
+
+# Verify TTS status
+echo -e "${YELLOW}Checking TTS backend status...${NC}"
+python -c "
+from tts_provider import get_available_backends
+backends = get_available_backends()
+for name, avail in backends.items():
+    status = '✓ installed' if avail else '✗ not installed'
+    print(f'  {name}: {status}')
+if not any(backends.values()):
+    print('  No TTS backends available. Install with: ./scripts/install.sh --tts')
+" 2>/dev/null || echo -e "${YELLOW}  Could not check TTS status (run from src/ directory)${NC}"
 echo
 
 # Installation complete
@@ -137,7 +320,10 @@ echo -e "  3. See README.md for usage instructions"
 echo
 echo -e "${BLUE}Optional setup:${NC}"
 echo -e "  - For AI features: Edit .env and set OPENROUTER_API_KEY"
-echo -e "  - For TTS: See INSTALL_TTS.md for setup instructions"
+echo -e "  - For TTS: ${GREEN}./scripts/install.sh --tts${NC}"
+echo -e "    Or install individually:"
+echo -e "    - Chatterbox: ${GREEN}pip install chatterbox-tts --no-deps${NC}"
+echo -e "    - Qwen3-TTS: ${GREEN}pip install qwen-tts${NC}"
 echo
 echo -e "${YELLOW}Note: Remember to activate the virtual environment before running:${NC}"
 echo -e "${GREEN}  source .venv/bin/activate${NC}"

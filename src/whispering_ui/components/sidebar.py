@@ -555,6 +555,75 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
 
             if state.tts_available:
                 with tts_section:
+                    # Backend selection
+                    with ui.row().classes('items-center w-full gap-1'):
+                        ui.label('Engine:').classes('text-xs w-10')
+                        # Build backend options from what's available
+                        backend_options = []
+                        if state.tts_backends_available.get("chatterbox"):
+                            backend_options.append("chatterbox")
+                        if state.tts_backends_available.get("qwen3"):
+                            backend_options.append("qwen3")
+                        # Always show both options so user knows what's possible
+                        if "chatterbox" not in backend_options:
+                            backend_options.append("chatterbox")
+                        if "qwen3" not in backend_options:
+                            backend_options.append("qwen3")
+
+                        tts_backend_select = register_tts(ui.select(
+                            options=backend_options,
+                            value=state.tts_backend
+                        ).classes('flex-grow').props('dense'))
+
+                        def on_backend_change(e):
+                            state.tts_backend = e.value
+                            if bridge.tts_controller:
+                                bridge.tts_controller.switch_backend(
+                                    backend=e.value,
+                                    qwen3_model_size=state.tts_qwen3_model_size,
+                                    qwen3_speaker=state.tts_qwen3_speaker,
+                                )
+                            # Show/hide Qwen3 options
+                            qwen3_row.set_visibility(e.value == "qwen3")
+
+                        tts_backend_select.on_value_change(on_backend_change)
+
+                    # Qwen3-TTS specific options (speaker + model size)
+                    qwen3_row = ui.row().classes('items-center w-full gap-1')
+                    qwen3_row.set_visibility(state.tts_backend == "qwen3")
+
+                    with qwen3_row:
+                        ui.label('Speaker:').classes('text-xs')
+                        from tts_provider import QWEN3_SPEAKERS, QWEN3_MODEL_SIZES
+                        qwen3_speaker_select = register_tts(ui.select(
+                            options=QWEN3_SPEAKERS,
+                            value=state.tts_qwen3_speaker
+                        ).classes('flex-grow').props('dense'))
+
+                        def on_speaker_change(e):
+                            state.tts_qwen3_speaker = e.value
+                            if bridge.tts_controller:
+                                bridge.tts_controller.set_parameters(speaker=e.value)
+
+                        qwen3_speaker_select.on_value_change(on_speaker_change)
+
+                        ui.label('Size:').classes('text-xs')
+                        qwen3_size_select = register_tts(ui.select(
+                            options=QWEN3_MODEL_SIZES,
+                            value=state.tts_qwen3_model_size
+                        ).classes('w-14').props('dense'))
+
+                        def on_size_change(e):
+                            state.tts_qwen3_model_size = e.value
+                            if bridge.tts_controller and state.tts_backend == "qwen3":
+                                bridge.tts_controller.switch_backend(
+                                    backend="qwen3",
+                                    qwen3_model_size=e.value,
+                                    qwen3_speaker=state.tts_qwen3_speaker,
+                                )
+
+                        qwen3_size_select.on_value_change(on_size_change)
+
                     # Source selection - compact
                     with ui.row().classes('items-center w-full gap-1'):
                         ui.label('Src:').classes('text-xs w-10')
@@ -585,6 +654,11 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                     # Output options - compact
                     with ui.row().classes('items-center w-full gap-1'):
                         ui.label('Out:').classes('text-xs w-10')
+
+                        tts_play_cb = register_tts(ui.checkbox('Play', value=state.tts_auto_play).props('dense'))
+                        tts_play_cb.on_value_change(lambda e: setattr(state, 'tts_auto_play', e.value))
+                        tts_play_cb.tooltip('Play audio through speakers in real time')
+
                         tts_save_cb = register_tts(ui.checkbox('Save', value=state.tts_save_file).props('dense'))
                         tts_save_cb.on_value_change(lambda e: setattr(state, 'tts_save_file', e.value))
 
@@ -599,6 +673,9 @@ def create_sidebar(state: AppState, bridge: ProcessingBridge, output_container=N
                             tts_status_label.text = state.tts_status_message[:50]
                         else:
                             tts_status_label.text = ''
+                        # Sync playback state from controller
+                        if bridge.tts_controller:
+                            state.tts_is_playing = bridge.tts_controller.is_playing
 
                     ui.timer(0.2, update_tts_status)
 
