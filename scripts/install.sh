@@ -246,17 +246,18 @@ install_qwen3() {
         rm -rf "$TEMP_DIR"
     }
 
-    # Install flash-attn (required for Qwen3-TTS performance)
+    # Install flash-attn (recommended for Qwen3-TTS performance, not required)
     # Must use --no-build-isolation because flash-attn needs torch at build time
     # but doesn't declare it as a build dependency
-    echo -e "${YELLOW}Installing flash-attn (required for Qwen3-TTS)...${NC}"
+    echo -e "${YELLOW}Installing flash-attn (recommended for Qwen3-TTS performance)...${NC}"
     echo -e "${BLUE}This may take a few minutes to compile...${NC}"
     MAX_JOBS=4 $PYTHON_CMD -m pip install -U flash-attn --no-build-isolation 2>/dev/null && {
         echo -e "${GREEN}✓ flash-attn installed${NC}"
     } || {
-        echo -e "${RED}✗ flash-attn installation failed${NC}"
-        echo -e "${BLUE}  Try manually: pip install flash-attn --no-build-isolation${NC}"
-        echo -e "${BLUE}  Make sure torch is installed first and you have a compatible GPU + CUDA toolkit.${NC}"
+        echo -e "${YELLOW}⚠ flash-attn installation failed (not critical)${NC}"
+        echo -e "${BLUE}  Qwen3-TTS will still work using eager attention (slower).${NC}"
+        echo -e "${BLUE}  To try again later: pip install flash-attn --no-build-isolation${NC}"
+        echo -e "${BLUE}  Requires: compatible GPU + CUDA toolkit + torch already installed.${NC}"
     }
 
     # Verify installation
@@ -264,7 +265,7 @@ install_qwen3() {
         echo -e "${YELLOW}  Note: Qwen3-TTS import test failed. It may still work at runtime.${NC}"
     }
     $PYTHON_CMD -c "import flash_attn; print('  ✓ flash-attn import successful')" 2>/dev/null || {
-        echo -e "${YELLOW}  Warning: flash-attn not available. Qwen3-TTS will be slower.${NC}"
+        echo -e "${YELLOW}  Note: flash-attn not available. Qwen3-TTS will use eager attention (slower but functional).${NC}"
     }
     echo
 }

@@ -29,15 +29,17 @@ source .venv/bin/activate
 # Step 1: Install Qwen3-TTS
 pip install qwen-tts
 
-# Step 2: Install flash-attn (REQUIRED - must install AFTER torch)
+# Step 2 (optional but recommended): Install flash-attn for faster inference
 # --no-build-isolation is needed because flash-attn needs torch at build time
 MAX_JOBS=4 pip install flash-attn --no-build-isolation
 
 # NOTE: Do NOT use "uv pip install flash-attn" - it will fail.
 # Use regular pip with --no-build-isolation instead.
+# If flash-attn fails to build, Qwen3-TTS will still work using
+# eager attention (slower but fully functional).
 
 # Verify
-python -c "from qwen_tts import Qwen3TTSModel; import flash_attn; print('Qwen3-TTS OK')"
+python -c "from qwen_tts import Qwen3TTSModel; print('Qwen3-TTS OK')"
 ```
 
 ### Option B: Chatterbox TTS (ResembleAI)
@@ -89,6 +91,14 @@ The playback uses a queue so segments are played sequentially without blocking.
 If you see `ModuleNotFoundError: No module named 'distutils'`:
 - Use `pip install chatterbox-tts --no-deps` (already handled by install.sh)
 - Or switch to Qwen3-TTS which doesn't have this issue
+
+### flash-attn build failure (Qwen3-TTS)
+
+If `pip install flash-attn --no-build-isolation` fails to compile:
+- **This is not critical** - Qwen3-TTS will fall back to eager attention (slower but works)
+- flash-attn requires: CUDA toolkit headers, a compatible GPU, and torch already installed
+- The app will print a note at startup if flash-attn is missing
+- To retry later: `MAX_JOBS=4 pip install flash-attn --no-build-isolation`
 
 ### No audio output
 

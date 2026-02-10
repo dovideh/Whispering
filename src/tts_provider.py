@@ -36,15 +36,25 @@ def get_available_backends() -> dict[str, bool]:
     except (ImportError, ModuleNotFoundError, Exception):
         backends["chatterbox"] = False
 
-    # Check Qwen3-TTS - verify both the model class and flash-attn are importable
+    # Check Qwen3-TTS - only require qwen_tts itself.
+    # flash-attn is recommended for performance but NOT required;
+    # Qwen3-TTS falls back to manual PyTorch attention without it.
     try:
         from qwen_tts import Qwen3TTSModel  # noqa: F401
-        import flash_attn  # noqa: F401
         backends["qwen3"] = True
     except (ImportError, ModuleNotFoundError, Exception):
         backends["qwen3"] = False
 
     return backends
+
+
+def is_flash_attn_available() -> bool:
+    """Check if flash-attn is installed (recommended for Qwen3-TTS performance)."""
+    try:
+        import flash_attn  # noqa: F401
+        return True
+    except (ImportError, ModuleNotFoundError, Exception):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -240,17 +250,13 @@ class Qwen3TTSProvider(BaseTTSProvider):
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = dtype
 
-            # flash-attn is required for Qwen3-TTS
-            try:
-                import flash_attn  # noqa: F401
+            # Use flash-attn if available (faster), otherwise fall back to eager
+            if is_flash_attn_available():
                 kwargs["attn_implementation"] = "flash_attention_2"
-            except ImportError:
-                raise ImportError(
-                    "flash-attn is required for Qwen3-TTS but is not installed.\n"
-                    "Install with: pip install flash-attn --no-build-isolation\n"
-                    "(torch must be installed first)\n"
-                    "Or run: ./scripts/install.sh --tts=qwen3"
-                )
+            else:
+                print("Note: flash-attn not installed. Using eager attention (slower).")
+                print("  Install for better performance: pip install flash-attn --no-build-isolation")
+                kwargs["attn_implementation"] = "eager"
 
             self.model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             self._initialized = True
@@ -268,7 +274,6 @@ class Qwen3TTSProvider(BaseTTSProvider):
 
         try:
             from qwen_tts import Qwen3TTSModel
-            import flash_attn  # noqa: F401
 
             model_name = self._get_model_name(clone=True)
             print(f"Loading Qwen3-TTS clone model ({model_name})...")
@@ -276,15 +281,20 @@ class Qwen3TTSProvider(BaseTTSProvider):
             dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
             kwargs = {"device_map": f"{self.device}:0" if self.device == "cuda" else self.device}
             kwargs["dtype"] = dtype
-            kwargs["attn_implementation"] = "flash_attention_2"
+
+            if is_flash_attn_available():
+                kwargs["attn_implementation"] = "flash_attention_2"
+            else:
+                kwargs["attn_implementation"] = "eager"
 
             self._clone_model = Qwen3TTSModel.from_pretrained(model_name, **kwargs)
             print("Qwen3-TTS clone model loaded")
 
         except ImportError as e:
             raise ImportError(
-                "flash-attn is required for Qwen3-TTS.\n"
-                "Install with: pip install flash-attn --no-build-isolation"
+                "Qwen3-TTS is not installed.\n"
+                "Install with: pip install qwen-tts\n"
+                "Or run: ./scripts/install.sh --tts=qwen3"
             ) from e
         except Exception as e:
             raise RuntimeError(f"Failed to load Qwen3-TTS clone model: {e}") from e
@@ -420,6 +430,8 @@ if __name__ == "__main__":
     for name, available in backends.items():
         status = "INSTALLED" if available else "not installed"
         print(f"  {name}: {status}")
+    flash_ok = is_flash_attn_available()
+    print(f"  flash-attn: {'INSTALLED' if flash_ok else 'not installed (Qwen3-TTS will use eager attention)'}")
 
     # Test with first available backend
     for name, available in backends.items():
